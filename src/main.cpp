@@ -7,9 +7,10 @@
 #include <SPIFFS.h>
 #include <TJpg_Decoder.h>
 #include <NetworkConstants.h>
+#include <SpotifyData.h>
 
 /*** Defines ***/
-#define PIN_LED_CONTROL     13              // LED strip control GPIO
+#define PIN_LED_CONTROL     12              // LED strip control GPIO
 #define PIN_LED_STATUS      2               // Status LED on HiLetgo board
 #define MAX_BRIGHT          100              // sets max brightness for LEDs
 #define JPG_GAMMA           2.2
@@ -42,15 +43,25 @@ void juggle();
 
 // Spotify Functinos
 void get_spotify_token();
-void get_spotify_player();
-void print_spotify_player();
+void get_spotify_player(SpotifyPlayerData_t *sp_data);
+void update_spotify_data(DynamicJsonDocument *json, SpotifyPlayerData *sp_data);
+void print_spotify_data(SpotifyPlayerData *sp_data);
 
 // Display Functions
 bool display_image(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap);   // callback function for JPG decoder
 int grid_to_idx(int x, int y, bool start_top_left);
-void get_spotify_art(String url);
+void get_spotify_art(SpotifyPlayerData_t *sp_data);
 
 /*** Globals ***/
+
+// Task & Queue Handles
+TaskHandle_t task_spotify;
+TaskHandle_t task_display;
+TaskHandle_t task_servo;
+QueueHandle_t q_sp_data;
+void task_spotify_code(void *parameter);
+void task_display_code(void *parameter);
+void task_servo_code(void *parameter);
 
 // LED Globals
 CRGB leds[NUM_LEDS];                      // array that will hold LED values
@@ -64,16 +75,7 @@ Servo myservo;
 int servo_pos = SERVO_START_POS;
 
 // Spotify Globals
-int current = 0, duration = 0;
-int volume;
-String artists = "", title, album, device, type, art_url, curr_uri = "";
-int art_width;
-bool isActive, playing;
-uint8_t *curr_art;
-int curr_art_size;
-bool display_updated = false;
-
-bool isExpired = true;
+bool token_expired = true;
 String token = "";
 
 void setup() {
@@ -112,19 +114,50 @@ void setup() {
   Serial.print("IP: "); Serial.println(WiFi.localIP());
   Serial.print("RSSI: "); Serial.println(WiFi.RSSI());
 
-  Serial.print("Setup complete\n\n");
-  //Serial.print("Servo control: f = forward, b = backward\n");
-
   // JPG decoder setup
+  Serial.print("Setting up JPG decoder\n");
   TJpgDec.setJpgScale(4);           // Assuming 64x64 image, will rescale to 16x16
   TJpgDec.setCallback(display_image);  // The decoder must be given the exact name of the rendering function above
 
   // Filessystem setup
+  Serial.print("Setting up filesystem\n");
   if(!SPIFFS.begin(true)){
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
   }
-  
+
+  Serial.print("Setup complete\n\n");
+
+  // Task setup
+  xTaskCreate(
+    task_spotify_code,      // Function to implement the task
+    "task_spotify",         // Name of the task
+    10000,                  // Stack size in words
+    NULL,                   // Task input parameter
+    1,                      // Priority of the task (don't use 0!)
+    &task_spotify           // Task handle
+  );
+
+  xTaskCreate(
+    task_display_code,      // Function to implement the task
+    "task_display",         // Name of the task
+    10000,                  // Stack size in words
+    NULL,                   // Task input parameter
+    1,                      // Priority of the task (don't use 0!)
+    &task_display           // Task handle
+  );
+
+  xTaskCreate(
+    task_servo_code,        // Function to implement the task
+    "task_servo",           // Name of the task
+    10000,                  // Stack size in words
+    NULL,                   // Task input parameter
+    1,                      // Priority of the task (don't use 0!)
+    &task_servo             // Task handle
+  );
+
+  q_sp_data = xQueueCreate(1, sizeof(SpotifyPlayerData_t));
+
   // // Splash screen
   // File file = SPIFFS.open("/rainbows.jpg");
   // if(!file){
@@ -144,35 +177,9 @@ void setup() {
 }
 
 void loop() {
+  vTaskDelete(NULL);
   // Serial.print("Free heap: ");
   // Serial.println(ESP.getFreeHeap());
-
-  // if (Serial.available() > 0) {
-  //   char c = Serial.read();
-  //   switch (c) {
-  //     case 'f':
-  //       servo_pos += 1;
-  //       break;
-  //     case 'b':
-  //       servo_pos -= 1;
-  //       break;
-  //   }
-  // }
-  // if (servo_pos > SERVO_START_POS) servo_pos = SERVO_START_POS;
-  // if (servo_pos < SERVO_END_POS) servo_pos = SERVO_END_POS;
-  // myservo.write(servo_pos);
-  
-  if ((WiFi.status() == WL_CONNECTED)) {
-    if (isExpired) {
-      get_spotify_token();
-    }
-
-    get_spotify_player();
-  } else {
-    Serial.println("Error: WiFi not connected! status = " + String(WiFi.status()));
-  }
-
-  FastLED.show();
   
   // // Call the current pattern function once, updating the 'leds' array
   // gPatterns[gCurrentPatternNumber]();
@@ -186,6 +193,89 @@ void loop() {
   // EVERY_N_MILLISECONDS( 20 ) { gHue++; } // slowly cycle the "base color" through the rainbow
   // EVERY_N_SECONDS( 10 ) { nextPattern(); } // change patterns periodically
 } 
+
+void task_spotify_code(void *parameter) {
+  Serial.print("task_spotify_code running on core ");
+  Serial.println(xPortGetCoreID());
+
+  SpotifyPlayerData_t sp_data;
+
+  for (;;) {
+    if ((WiFi.status() == WL_CONNECTED)) {
+      if (token_expired) {
+        get_spotify_token();
+      }
+
+      get_spotify_player(&sp_data);
+      xQueueSend(q_sp_data, &sp_data, 0); // set timeout to zero so loop will continue until display is updated
+    } else {
+      Serial.println("Error: WiFi not connected! status = " + String(WiFi.status()));
+    }
+  }
+}
+
+void task_display_code(void *parameter) {
+  Serial.print("task_display_code running on core ");
+  Serial.println(xPortGetCoreID());
+
+  SpotifyPlayerData_t sp_data;
+  String curr_track_id = "";
+  CRGB leds_last_row[GRID_W];   // save last row of album art so we can deal with progress bar moving backward
+
+  for (;;) {
+    xQueueReceive(q_sp_data, &sp_data, portMAX_DELAY);
+
+    if (sp_data.track_id != curr_track_id && sp_data.is_art_loaded) {
+      Serial.println("Track changed");
+      curr_track_id = sp_data.track_id;
+      Serial.println("Drawing art, " + String(sp_data.art_num_bytes) + " bytes");
+      TJpgDec.drawJpg(0, 0, sp_data.art_data, sp_data.art_num_bytes);
+
+      for (int i=0; i<GRID_W; i++) {
+        leds_last_row[i] = leds[i];
+      }
+    }
+
+    // Update the LED indicator at the bottom of the array
+    double percent_complete = double(sp_data.progress_ms) / sp_data.duration_ms * 100;
+    Serial.println("Playing..." + String(percent_complete) + "%");
+
+    int grid_pos = int(round(percent_complete / 100 * GRID_W));
+
+    for (int i=0; i<GRID_W; i++) {
+      if (i < grid_pos) {
+        leds[i] = CRGB::Red;
+      } else {
+        leds[i] = leds_last_row[i];
+      }
+    }
+
+    FastLED.show();
+  }
+}
+
+void task_servo_code(void *parameter) {
+  Serial.print("task_servo_code running on core ");
+  Serial.println(xPortGetCoreID());
+
+  for (;;) {
+    if (Serial.available() > 0) {
+      char c = Serial.read();
+      switch (c) {
+        case 'f':
+          servo_pos -= 1;
+          break;
+        case 'b':
+          servo_pos += 1;
+          break;
+      }
+      Serial.println("Servo pos: " + String(servo_pos));
+      myservo.write(servo_pos);
+    }
+    // if (servo_pos > SERVO_START_POS) servo_pos = SERVO_START_POS;
+    // if (servo_pos < SERVO_END_POS) servo_pos = SERVO_END_POS;
+  }
+}
 
 /*** Get Index of LED on a serpentine grid ***/
 int grid_to_idx(int x, int y, bool start_top_left) {
@@ -272,7 +362,7 @@ void get_spotify_token() {
   http.end();
 }
 
-void get_spotify_player() {
+void get_spotify_player(SpotifyPlayerData_t *sp_data) {
   HTTPClient http;
   
   http.begin(SPOTIFY_PLAYER_URL);
@@ -292,82 +382,72 @@ void get_spotify_player() {
 
         DynamicJsonDocument json(20000);
         deserializeJson(json, payload);
+        update_spotify_data(&json, sp_data);
 
-        if (curr_uri != json["item"]["uri"].as<String>()) {
-          curr_uri = json["item"]["uri"].as<String>();
-          title = json["item"]["name"].as<String>();
-          album = json["item"]["album"]["name"].as<String>();
-          
-          artists = "";
-          JsonArray arr = json["item"]["artists"].as<JsonArray>();
-          for (JsonVariant value : arr) {
-            artists += value["name"].as<String>() + " ";
-          }
-          isActive = json["device"]["is_active"].as<bool>();
-          type = json["device"]["type"].as<String>();
-          current = json["progress_ms"].as<int>();
-          duration = json["item"]["duration_ms"].as<int>();
-          playing = json["is_playing"].as<bool>();
-          device = json["device"]["name"].as<String>();
-          volume = json["device"]["volume_percent"].as<int>();
-
-          int art_url_count = json["item"]["album"]["images"].size(); // count number of album art URLs
-          art_url = json["item"]["album"]["images"][art_url_count - 1]["url"].as<String>(); // the last one is the smallest, typically 64x64
-          art_width = json["item"]["album"]["images"][art_url_count - 1]["width"].as<int>();
-
-          print_spotify_player();
-
-          if (art_url == NULL) {
-            curr_uri = "";  // force next loop to check json again
-          } else {
-            get_spotify_art(art_url);
-            //TJpgDec.drawFsJpg(0, 0, "/album_art.jpg");
-            TJpgDec.drawJpg(0, 0, curr_art, curr_art_size);
-            free(curr_art); // free the memory after image is displayed
-          }
-        } else {  // if it's the same track, just show how far we've advanced
-          current = json["progress_ms"].as<int>();
-          duration = json["item"]["duration_ms"].as<int>();
-          double percent_complete = double(current) / duration * 100;
-          Serial.println("Playing..." + String(percent_complete) + "%");
-          
-          // Update the LED indicator at the bottom of the array
-          int grid_pos = int(round(percent_complete / 100 * GRID_W));
-
-          for (int i=0; i<grid_pos; i++) {
-            leds[i] = CRGB::Red;
-          }
-          //leds[int(grid_pos_int)] = CRGB(int(255 * grid_pos_frac), 0, 0);
-        }
-
-        isExpired = false;
+        token_expired = false;
         break;
       }
     case HTTP_CODE_NO_CONTENT:
       Serial.println("Playback not available/active");
-      isExpired = false;
+      token_expired = false;
       break;
     case HTTP_CODE_BAD_REQUEST:
     case HTTP_CODE_UNAUTHORIZED:
     case HTTP_CODE_FORBIDDEN:
       Serial.println("Bad/expired token or OAuth request");
-      isExpired = true;
+      token_expired = true;
       break;
     case HTTP_CODE_TOO_MANY_REQUESTS:
       Serial.println("Exceeded rate limits");
-      isExpired = false;
+      token_expired = false;
       break;
     default:
       Serial.println("Unrecognized error");
-      isExpired = true;
+      token_expired = true;
       break;
   }
 
   http.end();
 }
 
+void update_spotify_data(DynamicJsonDocument *json, SpotifyPlayerData_t *sp_data) {
+  if (sp_data->track_id != (*json)["item"]["id"].as<String>()) {
+    sp_data->track_id = (*json)["item"]["id"].as<String>();
+    sp_data->track_title = (*json)["item"]["name"].as<String>();
+    sp_data->album = (*json)["item"]["album"]["name"].as<String>();
+    
+    JsonArray arr = (*json)["item"]["artists"].as<JsonArray>();
+    for (JsonVariant value : arr) {
+      sp_data->artists += value["name"].as<String>() + " ";
+    }
+    sp_data->is_active = (*json)["device"]["is_active"].as<bool>();
+    sp_data->device_type = (*json)["device"]["type"].as<String>();
+    sp_data->progress_ms = (*json)["progress_ms"].as<int>();
+    sp_data->duration_ms = (*json)["item"]["duration_ms"].as<int>();
+    sp_data->is_playing = (*json)["is_playing"].as<bool>();
+    sp_data->device = (*json)["device"]["name"].as<String>();
+    sp_data->volume = (*json)["device"]["volume_percent"].as<int>();
+
+    int art_url_count = (*json)["item"]["album"]["images"].size(); // count number of album art URLs
+    sp_data->art_url = (*json)["item"]["album"]["images"][art_url_count - 1]["url"].as<String>(); // the last one is the smallest, typically 64x64
+    sp_data->art_width = (*json)["item"]["album"]["images"][art_url_count - 1]["width"].as<int>();
+    sp_data->is_art_loaded = false;
+
+    if (sp_data->art_url == NULL) {
+      sp_data->track_id = "";  // force next loop to check json again
+    } else {
+      get_spotify_art(sp_data);
+    }
+
+    print_spotify_data(sp_data);
+  } else {  // if it's the same track, just show how far we've advanced
+    sp_data->progress_ms = (*json)["progress_ms"].as<int>();
+    sp_data->duration_ms = (*json)["item"]["duration_ms"].as<int>();
+  }
+}
+
 // Fetch a file from the URL given and save it to memory
-void get_spotify_art(String url) {
+void get_spotify_art(SpotifyPlayerData_t *sp_data) {
   // If it exists then no need to fetch it
   // if (SPIFFS.exists(filename) == true) {
   //   Serial.println("Found " + filename);
@@ -378,12 +458,13 @@ void get_spotify_art(String url) {
   //     SPIFFS.remove(filename);  // since we will always use the same filename
   // }
 
-  Serial.println("Downloading " + url);
+  int start_ms = millis();
+  Serial.println("Downloading " + sp_data->art_url);
   //Serial.print("[HTTP] begin...\n");
 
   HTTPClient http;
   // Configure server and url
-  http.begin(url);
+  http.begin(sp_data->art_url);
   //Serial.print("[HTTP] GET...\n");
 
   // Start connection and send HTTP header
@@ -402,10 +483,14 @@ void get_spotify_art(String url) {
 
       // Get length of document (is -1 when Server sends no Content-Length header)
       int total = http.getSize();
-      curr_art_size = total;
+
+      sp_data->art_num_bytes = total;
 
       // Allocate memory in heap for the downloaded data
-      curr_art = (uint8_t *)malloc(curr_art_size * sizeof(*curr_art));
+      if (sp_data->art_data != NULL) {
+        free (sp_data->art_data);   // if not NULL, we have previously allocated memory and should free it
+      }
+      sp_data->art_data = (uint8_t *)malloc(sp_data->art_num_bytes * sizeof(*(sp_data->art_data))); // dereference the art_data pointer to get the size of each element (uint8_t)
 
       int len = total;
 
@@ -428,7 +513,7 @@ void get_spotify_art(String url) {
           // f.write(buff, c);
 
           // Write it to memory, (curr_art_size - len) is the number of bytes already written
-          memcpy(&curr_art[curr_art_size - len], buff, c);
+          memcpy(&(sp_data->art_data)[sp_data->art_num_bytes - len], buff, c);
 
           // Calculate remaining bytes
           if (len > 0) {
@@ -446,23 +531,24 @@ void get_spotify_art(String url) {
     Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
   }
   http.end();
-  
-  // return 1; // File was fetched from web
+
+  sp_data->is_art_loaded = true;
+  Serial.println(String(millis() - start_ms) + "ms to download art");
 }
 
-void print_spotify_player() {
-  Serial.print("\tTitle: "); Serial.println(title);
-  Serial.print("\tArtist: "); Serial.println(artists);
-  Serial.print("\tAlbum: "); Serial.println(album);
-  Serial.print("\tAlbum art: "); Serial.println(art_url);
-  Serial.print("\tAlbum art width: "); Serial.println(art_width);
-  Serial.print("\tDuration: "); Serial.println(duration);
-  Serial.print("\tCurrent: "); Serial.println(current);
-  Serial.print("\tPlaying: "); Serial.println(playing);
-  Serial.print("\tDevice: "); Serial.println(device);
-  Serial.print("\tType: "); Serial.println(type);
-  Serial.print("\tActive: "); Serial.println(isActive);
-  Serial.print("\tVolume: "); Serial.println(volume);
+void print_spotify_data(SpotifyPlayerData_t *sp_data) {
+  Serial.print("\tTitle: "); Serial.println(sp_data->track_title);
+  Serial.print("\tArtist: "); Serial.println(sp_data->artists);
+  Serial.print("\tAlbum: "); Serial.println(sp_data->album);
+  Serial.print("\tAlbum art: "); Serial.println(sp_data->art_url);
+  Serial.print("\tAlbum art width: "); Serial.println(sp_data->art_width);
+  Serial.print("\tDuration (ms): "); Serial.println(sp_data->duration_ms);
+  Serial.print("\tProgress (ms): "); Serial.println(sp_data->progress_ms);
+  Serial.print("\tPlaying: "); Serial.println(sp_data->is_playing);
+  Serial.print("\tDevice: "); Serial.println(sp_data->device);
+  Serial.print("\tType: "); Serial.println(sp_data->device_type);
+  Serial.print("\tActive: "); Serial.println(sp_data->is_active);
+  Serial.print("\tVolume: "); Serial.println(sp_data->volume);
 }
 
 void nextPattern()
