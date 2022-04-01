@@ -18,4 +18,5 @@ typedef struct SpotifyPlayerData {
     uint8_t *art_data = NULL;
     unsigned long art_num_bytes = 0;
     bool is_art_loaded = false;
+    uint8_t tempo = 0;
 } SpotifyPlayerData_t;
