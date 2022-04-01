@@ -1,0 +1,59 @@
+#ifndef _AUDIOPROCESSOR_H
+#define _AUDIOPROCESSOR_H
+
+#include <Arduino.h>
+#include "arduinoFFT.h"
+#include "Constants.h"
+
+class AudioProcessor {
+    public:
+        // Constructors
+        AudioProcessor();
+        AudioProcessor(bool a_weighting_eq, bool white_noise_eq, bool perceptual_binning);
+
+        // Methods
+        void init_variables();
+        void set_audio_samples(double *samples);
+        void update_volume();
+        void run_fft();
+        void calc_intensity(int length);
+
+        // Variables for LEDs
+        int intensity[NUM_LEDS] = { 0 };            // holds the brightness values to set the LEDs to
+        
+        // Variables for volume
+        double curr_volume = 0;                     // store instantaneous volume
+        double avg_volume = 0;                      // running average of volumes
+        double avg_peak_volume = 0;                 // running average of peak volumes
+        
+        bool audio_first_loop = true;
+
+    private:
+        // Methods
+        void _clear_fft_bin();
+        double _calc_rms(double *arr, int len);
+        void _perform_fft();
+        void _postprocess_fft();
+        void _interpolate_fft(int new_length);
+
+        // Variables for FFT
+        arduinoFFT _FFT  = arduinoFFT(_v_real, _v_imag, FFT_SAMPLES, I2S_SAMPLE_RATE);
+        double _v_real[FFT_SAMPLES] = { 0.0 };   // will store audio samples, then replaced by FFT real data (up to FFT_SAMPLES / 2 length)
+        double _v_imag[FFT_SAMPLES] = { 0.0 };   // will store all zeros, then replaced by FFT imaginary data (up to FFT_SAMPLES / 2 length)
+        double _fft_clean[FFT_SAMPLES / 2] = { 0.0 };   // will store "cleaned" and equalized FFT data
+        double _fft_bin[FFT_SAMPLES / 2] = { 0.0 };   // will store "binned" FFT data
+        double _fft_interp[NUM_LEDS] = { 0.0 };   // will store interpolated FFT data
+
+        // FFT post-processing options
+        bool _WHITE_NOISE_EQ = true;
+        bool _A_WEIGHTING_EQ = true;
+        bool _PERCEPTUAL_BINNING = true;
+
+        // Variables for LEDs
+        int _last_intensity[NUM_LEDS] { 0 };         // holds the last frame intensities for smoothing
+
+        // Other variables
+        double _max_val = 0;                         // this is used to normalize the FFT outputs to [0 1]. set it lower to make the system "more sensitive". is auto-adjusted based on volume but empirically 1500 works pretty well.
+};
+
+#endif // _AUDIOPROCESSOR_H
