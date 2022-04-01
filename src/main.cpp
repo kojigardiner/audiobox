@@ -1,42 +1,5 @@
-#include <Arduino.h>
-
-/*** Defines ***/
-#define PIN_LED_CONTROL     12              // LED strip control GPIO
-#define PIN_LED_STATUS      2               // Status LED on HiLetgo board
-#define PIN_BUTTON_MODE     14
-#define PIN_BUTTON_UP       26
-#define PIN_BUTTON_DOWN     27
-#define PIN_I2S_BCK         5
-#define PIN_I2S_DIN         17
-#define PIN_I2S_WS          16
-#define PIN_SERVO           18
-
-#define MAX_BRIGHT          100              // sets max brightness for LEDs
-#define JPG_GAMMA           2.2
-#define LED_GAMMA           2.8
-
-#define GRID_H              16
-#define GRID_W              16
-#define NUM_LEDS            GRID_H * GRID_W
-#define FRAMES_PER_SECOND   120
-
-// Audio defines
-#define I2S_PORT            I2S_NUM_0       // I2S port
-#define I2S_SAMPLE_RATE     22050           // audio sampling rate (per Nyquist, we can get up to sample rate/2 freqs in FFT
-#define I2S_MIC_BIT_DEPTH   18              // SPH0645 bit depth, per datasheet (18-bit 2's complement in 24-bit container)
-#define FFT_SAMPLES         256
-
-// Servo defines
-#define SERVO_MIN_US        700
-#define SERVO_MAX_US        2400
-#define SERVO_START_POS     130
-#define SERVO_END_POS       0
-#define SERVO_BUTTON_HOLD_DELAY_MS 50
-
-// Macros
-#define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
-
 /*** Includes ***/
+#include <Arduino.h>
 #include <FastLED.h>
 #include <ESP32Servo.h>
 #include <WiFi.h>
@@ -44,13 +7,16 @@
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 #include <TJpg_Decoder.h>
-#include <NetworkConstants.h>
-#include <SpotifyData.h>
-#include <Button.h>
-#include <Timer.h>
 #include <arduinoFFT.h>
 #include <driver/i2s.h>
 #include <soc/i2c_reg.h>
+
+#include "Constants.h"
+#include "NetworkConstants.h"
+#include "SpotifyData.h"
+#include "Button.h"
+#include "Timer.h"
+#include "AudioProcessor.h"
 
 /*** Function Prototypes ***/
 
@@ -83,6 +49,11 @@ void move_servo();
 
 // Audio Functions
 void i2s_init();
+void run_audio(AudioProcessor *ap);
+void get_audio_samples(double *samples);
+void set_leds_sym_snake_grid(AudioProcessor *ap);
+void set_leds_scrolling(AudioProcessor *ap);
+void (*audio_display_func[2]) (AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_scrolling};
 
 /*** Globals ***/
 
@@ -90,11 +61,13 @@ void i2s_init();
 TaskHandle_t task_spotify;
 TaskHandle_t task_display;
 TaskHandle_t task_buttons;
+TaskHandle_t task_audio;
 QueueHandle_t q_sp_data;
 QueueHandle_t q_change_mode;
 void task_spotify_code(void *parameter);
 void task_display_code(void *parameter);
 void task_buttons_code(void *parameter);
+void task_audio_code(void *parameter);
 
 // LED Globals
 CRGB leds[NUM_LEDS];                      // array that will hold LED values
@@ -104,6 +77,26 @@ typedef void (*SimplePatternList[])();    // List of patterns to cycle through. 
 SimplePatternList gPatterns = { };
 uint8_t gCurrentPatternNumber = 0;        // Index number of which pattern is current
 uint8_t gHue = 0;                         // rotating "base color" used by many of the patterns
+CRGBPalette16 curr_palette;
+double color_index = 0;
+TBlendType curr_blending = LINEARBLEND;
+CRGB colors_grid_wide[GRID_W * SCROLL_AVG_FACTOR][GRID_H] = {CRGB::Black};
+int audio_display_idx = 0;
+
+/*** Color Palettes ***/
+// Gradient palette "Sunset_Real_gp", originally from
+// http://soliton.vm.bytemark.co.uk/pub/cpt-city/nd/atmospheric/tn/Sunset_Real.png.index.html
+// converted for FastLED with gammas (2.6, 2.2, 2.5)
+// Size: 28 bytes of program space.
+DEFINE_GRADIENT_PALETTE( Sunset_Real_gp ) {
+  0, 120,  0,  0,
+  22, 179, 22,  0,
+  51, 255, 104,  0,
+  85, 167, 22, 18,
+  135, 100,  0, 103,
+  198,  16,  0, 130,
+  255,   0,  0, 160
+};
 
 // Servo Globals
 Servo myservo;
@@ -134,6 +127,7 @@ void setup() {
   FastLED.setBrightness(MAX_BRIGHT);
   FastLED.clear();
   FastLED.show();
+  curr_palette = Sunset_Real_gp;
 
   // Servo Setup
   Serial.print("Setting up servo\n");
@@ -173,24 +167,24 @@ void setup() {
 
   Serial.print("Setup complete\n\n");
 
-  // Task setup
-  xTaskCreate(
-    task_spotify_code,      // Function to implement the task
-    "task_spotify",         // Name of the task
-    10000,                  // Stack size in words
-    NULL,                   // Task input parameter
-    1,                      // Priority of the task (don't use 0!)
-    &task_spotify           // Task handle
-  );
+  // // Task setup
+  // xTaskCreate(
+  //   task_spotify_code,      // Function to implement the task
+  //   "task_spotify",         // Name of the task
+  //   10000,                  // Stack size in words
+  //   NULL,                   // Task input parameter
+  //   1,                      // Priority of the task (don't use 0!)
+  //   &task_spotify           // Task handle
+  // );
 
-  xTaskCreate(
-    task_display_code,      // Function to implement the task
-    "task_display",         // Name of the task
-    10000,                  // Stack size in words
-    NULL,                   // Task input parameter
-    1,                      // Priority of the task (don't use 0!)
-    &task_display           // Task handle
-  );
+  // xTaskCreate(
+  //   task_display_code,      // Function to implement the task
+  //   "task_display",         // Name of the task
+  //   10000,                  // Stack size in words
+  //   NULL,                   // Task input parameter
+  //   1,                      // Priority of the task (don't use 0!)
+  //   &task_display           // Task handle
+  // );
 
   xTaskCreate(
     task_buttons_code,        // Function to implement the task
@@ -199,6 +193,15 @@ void setup() {
     NULL,                   // Task input parameter
     1,                      // Priority of the task (don't use 0!)
     &task_buttons             // Task handle
+  );
+
+  xTaskCreate(
+    task_audio_code,        // Function to implement the task
+    "task_audio",           // Name of the task
+    20000,                  // Stack size in words
+    NULL,                   // Task input parameter
+    1,                      // Priority of the task (don't use 0!)
+    &task_audio             // Task handle
   );
 
   q_sp_data = xQueueCreate(1, sizeof(SpotifyPlayerData_t));
@@ -256,6 +259,48 @@ void i2s_init() {
 void loop() {
   //vTaskDelete(NULL);
 } 
+
+void task_audio_code(void *parameter) {
+  Serial.print("task_audio_code running on core ");
+  Serial.println(xPortGetCoreID());
+
+  AudioProcessor ap = AudioProcessor();
+  uint8_t change_mode = 0;  
+
+  for (;;) {
+    xQueueReceive(q_change_mode, &change_mode, 0);
+    if (change_mode) {
+      audio_display_idx = (audio_display_idx + 1) % (sizeof(audio_display_func) / (sizeof(audio_display_func[0])));
+      Serial.println("Mode change, idx =  " + String(audio_display_idx));
+
+      change_mode = 0;
+      xQueueReset(q_change_mode);
+    }
+    EVERY_N_MILLIS(int(1000.0 / FPS)) {
+      run_audio(&ap);
+      FastLED.show();
+    }    
+  }
+}
+
+void run_audio(AudioProcessor *ap) {
+  double samples[FFT_SAMPLES];
+
+  // First audio samples are junk, so prime the system then delay
+  if (ap->audio_first_loop) {
+    get_audio_samples(samples);
+    delay(1000);
+  }
+  get_audio_samples(samples);
+
+  ap->set_audio_samples(samples);
+  ap->update_volume();
+  ap->run_fft();
+
+  ap->audio_first_loop = false;
+
+  audio_display_func[audio_display_idx](ap);
+}
 
 void task_spotify_code(void *parameter) {
   Serial.print("task_spotify_code running on core ");
@@ -376,6 +421,143 @@ void task_buttons_code(void *parameter) {
   }
 }
 
+/*** Get audio data from I2S mic ***/
+void get_audio_samples(double *samples) {
+  int32_t audio_val, audio_val_avg;
+  int32_t audio_val_sum = 0;
+  int32_t abs_val_sum = 0;
+  int32_t buffer[FFT_SAMPLES];
+  size_t bytes_read = 0;
+  int samples_read = 0;
+
+  i2s_read(I2S_PORT, (void*) buffer, sizeof(buffer), &bytes_read, portMAX_DELAY); // no timeout
+  samples_read = int(int(bytes_read) / sizeof(buffer[0])); // since a sample is 32 bits (4 bytes)
+
+  if (int(samples_read) != FFT_SAMPLES) {
+    Serial.println("Warning: " + String(int(samples_read)) + " audio samples read, " + String(FFT_SAMPLES) + " expected!");
+  }
+
+  uint8_t bit_shift_amount = 32 - I2S_MIC_BIT_DEPTH;
+
+  for (int i = 0; i < int(samples_read); i++) {
+    audio_val = buffer[i] >> bit_shift_amount;
+    audio_val_sum += audio_val;
+
+    samples[i] = double(audio_val);
+  }
+
+  // Remove the DC offset (average of samples)
+  audio_val_avg = int(double(audio_val_sum) / int(samples_read));     // DC offset
+  for (int i = 0; i < int(samples_read); i++) {
+    samples[i] -= audio_val_avg;                                // subtract DC offset
+    abs_val_sum += abs(samples[i]);
+  }
+}
+
+void set_leds_sym_snake_grid(AudioProcessor *ap) {
+  ap->calc_intensity(NUM_LEDS / 2); // for a symmetric pattern, we only calculate intensities for half the LEDs
+
+  // Left half of array
+  /*
+   * 0: 3 -> 0     (width * i + width/2 - 1)::-1
+   * 1: 15 -> 12   (width * (i + 1) - 1)::-1
+   * 2: 19 -> 16   (width * i + width/2 - 1)::-1
+   * 3: 31 -> 28   (width * (i + 1) - 1)::-1
+   * 4: 35 -> 32   (width * i + width/2 - 1)::-1
+   * 5: 47 -> 44   (width * (i + 1) - 1)::-1
+   * 6: 51 -> 48   (width * i + width/2 - 1)::-1
+   * 7: 63 -> 60   (width * (i + 1) - 1)::-1
+   */
+
+  int curr_index = 0;
+  color_index = 0;
+  for (int i = 0; i < GRID_H; i++) {
+    if (i % 2 == 0) {
+      for (int j = 0; j < GRID_W/2; j++) {
+        leds[GRID_W * i + GRID_W/2 - 1 - j] = ColorFromPalette(curr_palette, int(color_index), pgm_read_byte(&GAMMA8[int(ap->intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), curr_blending);
+        color_index += 255.0 / (NUM_LEDS/2);
+        curr_index += 1;
+      }
+    } else {
+      for (int j = 0; j < GRID_W/2; j++) {
+        leds[GRID_W * (i + 1) - 1 - j] = ColorFromPalette(curr_palette, int(color_index), pgm_read_byte(&GAMMA8[int(ap->intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), curr_blending);
+        color_index += 255.0 / (NUM_LEDS/2);
+        curr_index += 1;
+      }      
+    }
+  }
+
+  // Right half of array
+  /*
+   * 0: 4 -> 7     (width * i + width/2)::+1
+   * 1: 8 -> 11    (width * i)::+1
+   * 2: 20 -> 23   (width * i + width/2)::+1
+   * 3: 24 -> 27   (width * i)::+1
+   * 4: 36 -> 39   (width * i + width/2)::+1
+   * 5: 40 -> 43   (width * i)::+1
+   * 6: 52 -> 55   (width * i + width/2)::+1
+   * 7: 56 -> 59   (width * i)::+1
+   */
+  curr_index = 0;
+  color_index = 0;
+  CRGB curr_color;
+  for (int i = 0; i < GRID_H; i++) {
+    if (i % 2 == 0) {
+      for (int j = 0; j < GRID_W/2; j++) {
+        leds[GRID_W * i + GRID_W/2 + j] = ColorFromPalette(curr_palette, int(color_index), pgm_read_byte(&GAMMA8[int(ap->intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), curr_blending);
+        // TODO: Pull color from palette first at intensity[curr_index]; _then_ apply gamma to adjust. 
+        // TODO: Use same gammas for RGB that are used on RaspPi
+        color_index += 255.0 / (NUM_LEDS/2);
+        curr_index += 1;
+      }
+    } else {
+      for (int j = 0; j < GRID_W/2; j++) {
+        leds[GRID_W * i + j] = ColorFromPalette(curr_palette, int(color_index), pgm_read_byte(&GAMMA8[int(ap->intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), curr_blending);
+        color_index += 255.0 / (NUM_LEDS/2);
+        curr_index += 1;
+      }      
+    }
+  }
+}
+
+void set_leds_scrolling(AudioProcessor *ap) {
+  ap->calc_intensity(GRID_H);
+
+  // Generate an extra wide representation of the colors
+  int effective_w = GRID_W * SCROLL_AVG_FACTOR;
+  int avg_r, avg_g, avg_b;
+  
+  color_index = 0;
+  
+  // For leftmost columns, grab data from the next column over
+  // For the last column, actually take the audio data
+  for (int x = 0; x < effective_w; x++) {  
+    for (int y = 0; y < GRID_H; y++) {
+      if (x == effective_w - 1) {
+        colors_grid_wide[x][y] = ColorFromPalette(curr_palette, int(color_index), pgm_read_byte(&GAMMA8[int(ap->intensity[y] * 255.0 / double(BRIGHT_LEVELS))]), curr_blending);
+        color_index += 255.0 / (GRID_H);
+      } else {
+        colors_grid_wide[x][y] = colors_grid_wide[x+1][y]; 
+        //colors_grid_wide[x][y].fadeToBlackBy(32); // note this is an exponential decay by XX/255. 32 makes this look like a standard spectrogram
+      }
+    }
+  }
+  for (int x = 0; x < GRID_W; x++) {
+    for (int y = 0; y < GRID_H; y++) {
+      avg_r = 0; 
+      avg_g = 0;
+      avg_b = 0;
+      for (int i = 0; i < SCROLL_AVG_FACTOR; i++) {
+        avg_r += colors_grid_wide[x * SCROLL_AVG_FACTOR + i][y].red;
+        avg_g += colors_grid_wide[x * SCROLL_AVG_FACTOR + i][y].green;
+        avg_b += colors_grid_wide[x * SCROLL_AVG_FACTOR + i][y].blue;
+      }
+
+      leds[grid_to_idx(x, y, false)] = CRGB(avg_r / SCROLL_AVG_FACTOR, avg_g / SCROLL_AVG_FACTOR, avg_b / SCROLL_AVG_FACTOR);
+    }
+  }
+}
+
 void display_led_demo(SpotifyPlayerData_t *sp_data) {
   // Call the current pattern function once, updating the 'leds' array
   //gPatterns[gCurrentPatternNumber]();
@@ -384,7 +566,7 @@ void display_led_demo(SpotifyPlayerData_t *sp_data) {
   // send the 'leds' array out to the actual LED strip
   FastLED.show();  
   // insert a delay to keep the framerate modest
-  FastLED.delay(1000/FRAMES_PER_SECOND); 
+  FastLED.delay(1000/FPS); 
 
   // do some periodic updates
   EVERY_N_MILLISECONDS( 20 ) { gHue++; } // slowly cycle the "base color" through the rainbow
