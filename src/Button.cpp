@@ -10,7 +10,6 @@ Button::Button(int button_id) {
 }
 
 int Button::read_button(void) {
-  pinMode(_button_id, INPUT_PULLUP);
   int button_state = digitalRead(_button_id);
 
   if (button_state != _last_button_state) {   // if state has changed

@@ -17,6 +17,7 @@
 #include "Button.h"
 #include "Timer.h"
 #include "AudioProcessor.h"
+#include "MeanCut.h"
 
 /*** Function Prototypes ***/
 
@@ -40,9 +41,12 @@ void print_spotify_data(SpotifyPlayerData *sp_data);
 
 // Display Functions
 bool display_image(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap);   // callback function for JPG decoder
+bool copy_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap);   // callback function for JPG decoder
 int grid_to_idx(int x, int y, bool start_top_left);
 void get_spotify_art(SpotifyPlayerData_t *sp_data);
 void display_led_demo(SpotifyPlayerData_t *sp_data);
+void display_full_art(uint8_t idx);
+void decode_art(SpotifyPlayerData_t *sp_data);
 
 // Servo Functions
 void move_servo();
@@ -59,15 +63,19 @@ void (*audio_display_func[2]) (AudioProcessor *) = {set_leds_sym_snake_grid, set
 
 // Task & Queue Handles
 TaskHandle_t task_spotify;
-TaskHandle_t task_display;
+TaskHandle_t task_display_art;
 TaskHandle_t task_buttons;
-TaskHandle_t task_audio;
+TaskHandle_t task_display_audio;
 QueueHandle_t q_sp_data;
 QueueHandle_t q_change_mode;
+SemaphoreHandle_t mutex_display;
+enum Modes { MODE_AUDIO, MODE_ART };
+uint8_t curr_mode = MODE_AUDIO;
+
 void task_spotify_code(void *parameter);
-void task_display_code(void *parameter);
+void task_display_art_code(void *parameter);
 void task_buttons_code(void *parameter);
-void task_audio_code(void *parameter);
+void task_display_audio_code(void *parameter);
 
 // LED Globals
 CRGB leds[NUM_LEDS];                      // array that will hold LED values
@@ -82,6 +90,15 @@ double color_index = 0;
 TBlendType curr_blending = LINEARBLEND;
 CRGB colors_grid_wide[GRID_W * SCROLL_AVG_FACTOR][GRID_H] = {CRGB::Black};
 int audio_display_idx = 0;
+uint16_t full_art[64][64] = { 0 };
+
+// Globals for palette art
+uint16_t palette_art[16][16] = { 0 };
+const uint8_t MEAN_CUT_DEPTH = 4;
+const uint8_t PALETTE_ENTRIES = 1 << MEAN_CUT_DEPTH;
+uint8_t palette_results[PALETTE_ENTRIES][3] = { 0 };
+CRGB palette_crgb[PALETTE_ENTRIES];
+
 
 /*** Color Palettes ***/
 // Gradient palette "Sunset_Real_gp", originally from
@@ -155,8 +172,9 @@ void setup() {
 
   // JPG decoder setup
   Serial.print("Setting up JPG decoder\n");
-  TJpgDec.setJpgScale(4);           // Assuming 64x64 image, will rescale to 16x16
-  TJpgDec.setCallback(display_image);  // The decoder must be given the exact name of the rendering function above
+  TJpgDec.setJpgScale(1);           // Assuming 64x64 image, will rescale to 16x16
+  //TJpgDec.setCallback(display_image);  // The decoder must be given the exact name of the rendering function above
+  TJpgDec.setCallback(copy_jpg_data);  // The decoder must be given the exact name of the rendering function above
 
   // Filessystem setup
   Serial.print("Setting up filesystem\n");
@@ -167,24 +185,17 @@ void setup() {
 
   Serial.print("Setup complete\n\n");
 
-  // // Task setup
-  // xTaskCreate(
-  //   task_spotify_code,      // Function to implement the task
-  //   "task_spotify",         // Name of the task
-  //   10000,                  // Stack size in words
-  //   NULL,                   // Task input parameter
-  //   1,                      // Priority of the task (don't use 0!)
-  //   &task_spotify           // Task handle
-  // );
+  // Task setup
+  mutex_display = xSemaphoreCreateMutex();
 
-  // xTaskCreate(
-  //   task_display_code,      // Function to implement the task
-  //   "task_display",         // Name of the task
-  //   10000,                  // Stack size in words
-  //   NULL,                   // Task input parameter
-  //   1,                      // Priority of the task (don't use 0!)
-  //   &task_display           // Task handle
-  // );
+  xTaskCreate(
+    task_spotify_code,      // Function to implement the task
+    "task_spotify",         // Name of the task
+    20000,                  // Stack size in words
+    NULL,                   // Task input parameter
+    1,                      // Priority of the task (don't use 0!)
+    &task_spotify           // Task handle
+  );
 
   xTaskCreate(
     task_buttons_code,        // Function to implement the task
@@ -196,16 +207,27 @@ void setup() {
   );
 
   xTaskCreate(
-    task_audio_code,        // Function to implement the task
-    "task_audio",           // Name of the task
+    task_display_audio_code,        // Function to implement the task
+    "task_display_audio",           // Name of the task
     20000,                  // Stack size in words
     NULL,                   // Task input parameter
     1,                      // Priority of the task (don't use 0!)
-    &task_audio             // Task handle
+    &task_display_audio             // Task handle
+  );
+
+  xTaskCreate(
+    task_display_art_code,      // Function to implement the task
+    "task_display_art",         // Name of the task
+    10000,                  // Stack size in words
+    NULL,                   // Task input parameter
+    1,                      // Priority of the task (don't use 0!)
+    &task_display_art           // Task handle
   );
 
   q_sp_data = xQueueCreate(1, sizeof(SpotifyPlayerData_t));
   q_change_mode = xQueueCreate(1, sizeof(uint8_t));
+
+  disableCore0WDT();
 
   // // Splash screen
   // File file = SPIFFS.open("/rainbows.jpg");
@@ -257,30 +279,38 @@ void i2s_init() {
 }
 
 void loop() {
-  //vTaskDelete(NULL);
+  vTaskDelete(NULL);
 } 
 
-void task_audio_code(void *parameter) {
-  Serial.print("task_audio_code running on core ");
+void task_display_audio_code(void *parameter) {
+  Serial.print("task_display_audio_code running on core ");
   Serial.println(xPortGetCoreID());
 
   AudioProcessor ap = AudioProcessor();
   uint8_t change_mode = 0;  
 
   for (;;) {
-    xQueueReceive(q_change_mode, &change_mode, 0);
-    if (change_mode) {
-      audio_display_idx = (audio_display_idx + 1) % (sizeof(audio_display_func) / (sizeof(audio_display_func[0])));
-      Serial.println("Mode change, idx =  " + String(audio_display_idx));
+    // xQueueReceive(q_change_mode, &change_mode, 0);
+    // if (change_mode) {
+    //   audio_display_idx = (audio_display_idx + 1) % (sizeof(audio_display_func) / (sizeof(audio_display_func[0])));
+    //   Serial.println("Mode change, idx =  " + String(audio_display_idx));
 
-      change_mode = 0;
-      xQueueReset(q_change_mode);
+    //   change_mode = 0;
+    //   xQueueReset(q_change_mode);
+    // }
+    if (curr_mode == MODE_AUDIO) {
+      xSemaphoreTake(mutex_display, portMAX_DELAY);
+      move_servo();
+      // EVERY_N_MILLIS(int(1000.0 / FPS)) {
+        run_audio(&ap);
+        FastLED.show();
+      // }
+      xSemaphoreGive(mutex_display);
     }
-    EVERY_N_MILLIS(int(1000.0 / FPS)) {
-      run_audio(&ap);
-      FastLED.show();
-    }    
+    vTaskDelay((1000 / FPS) / portTICK_RATE_MS);
   }
+
+  vTaskDelete(NULL);
 }
 
 void run_audio(AudioProcessor *ap) {
@@ -318,72 +348,95 @@ void task_spotify_code(void *parameter) {
     } else {
       Serial.println("Error: WiFi not connected! status = " + String(WiFi.status()));
     }
+    vTaskDelay(1000 / portTICK_RATE_MS);  // Run once a second
   }
   // Serial.println("task_spotify_code: " + String(uxTaskGetStackHighWaterMark(NULL)));
+  vTaskDelete(NULL);
 }
 
-void task_display_code(void *parameter) {
-  Serial.print("task_display_code running on core ");
+void task_display_art_code(void *parameter) {
+  Serial.print("task_display_art_code running on core ");
   Serial.println(xPortGetCoreID());
 
-  uint8_t curr_mode = 0;
   uint8_t change_mode = 0;  
   SpotifyPlayerData_t sp_data;
   String curr_track_id = "";
-  CRGB leds_last_row[GRID_W];   // save last row of album art so we can deal with progress bar moving backward
+  uint8_t counter = 0;
+  BaseType_t q_return;
+  double percent_complete = 0.0;
 
   for (;;) {
-    xQueueReceive(q_change_mode, &change_mode, 0);
-    if (change_mode) {
-      curr_mode = (curr_mode + 1) % 2;
-      change_mode = 0;
+    // xQueueReceive(q_change_mode, &change_mode, 0);
+    // if (change_mode) {
+    //   curr_mode = (curr_mode + 1) % 2;
+    //   change_mode = 0;
       
-      FastLED.clear();
+    //   FastLED.clear();
 
-      curr_track_id = ""; // reset to force art display on mode change
-      xQueueReset(q_sp_data); // reset the queue since we haven't been consuming it
-    }
-    if (curr_mode % 2) {
-      xQueueReceive(q_sp_data, &sp_data, 0);  // only use this for the bpm demo
-      display_led_demo(&sp_data);
-      servo_pos = 110;
-      move_servo();
-    } else {
-      servo_pos = 30;
-      move_servo();
-      xQueueReceive(q_sp_data, &sp_data, portMAX_DELAY);
+    //   curr_track_id = ""; // reset to force art display on mode change
+    //   xQueueReset(q_sp_data); // reset the queue since we haven't been consuming it
+    // }
+    // if (curr_mode % 2) {
+    //   xQueueReceive(q_sp_data, &sp_data, 0);  // only use this for the bpm demo
+    //   display_led_demo(&sp_data);
+    //   servo_pos = 110;
+    //   move_servo();
+    // } else {
+    //   servo_pos = 30;
+    //   move_servo();
+    if (curr_mode == MODE_ART) {  // only run when mode is active
+      xSemaphoreTake(mutex_display, portMAX_DELAY); // wait until other threads are done acting on the display
+      q_return = xQueueReceive(q_sp_data, &sp_data, 0);
 
-      if (sp_data.track_id != curr_track_id && sp_data.is_art_loaded) {
-        Serial.println("Track changed");
-        curr_track_id = sp_data.track_id;
-        Serial.println("Drawing art, " + String(sp_data.art_num_bytes) + " bytes");
-        TJpgDec.drawJpg(0, 0, sp_data.art_data, sp_data.art_num_bytes);
+      // if we actually have new data from the queue
+      // if (q_return == pdTRUE && sp_data.track_id != curr_track_id && sp_data.is_art_loaded) {
+      //   Serial.println("Track changed");
+      //   curr_track_id = sp_data.track_id;
+      //   Serial.println("Decoding art, " + String(sp_data.art_num_bytes) + " bytes");
+      //   TJpgDec.drawJpg(0, 0, sp_data.art_data, sp_data.art_num_bytes); // decode and copy jpg data into full_art
 
-        for (int i=0; i<GRID_W; i++) {
-          leds_last_row[i] = leds[i];
-        }
+      //   mean_cut((uint16_t *)palette_art, 16*16, MEAN_CUT_DEPTH, (uint8_t *)palette_results);
+      //   Serial.println("Finished mean cut, printing returned results");
+      //   for (int i=0; i < PALETTE_ENTRIES; i++) {
+      //     Serial.println(String(palette_results[i][0]) + "," + String(palette_results[i][1]) + "," + String(palette_results[i][2]));
+      //     uint8_t r8 = round(pow(float(palette_results[i][0]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
+      //     uint8_t g8 = round(pow(float(palette_results[i][1]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
+      //     uint8_t b8 = round(pow(float(palette_results[i][2]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
+      //     palette_crgb[i] = CRGB(r8, g8, b8);
+      //   }
+      //   curr_palette = CRGBPalette16(palette_crgb[0], palette_crgb[1], palette_crgb[2], palette_crgb[3],
+      //                                palette_crgb[4], palette_crgb[5], palette_crgb[6], palette_crgb[7],
+      //                                palette_crgb[8], palette_crgb[9], palette_crgb[10], palette_crgb[11],
+      //                                palette_crgb[12], palette_crgb[13], palette_crgb[14], palette_crgb[15]);
+      // }
+      if (q_return == pdTRUE) {
+          percent_complete = double(sp_data.progress_ms) / sp_data.duration_ms * 100;
+          Serial.println("Playing..." + String(percent_complete) + "%");
       }
+      // Display art and current elapsed regardless of if we have new data from the queue
+      if (sp_data.is_art_loaded) {
+        display_full_art(0);
+        counter = (counter + 1) % 4;
 
-      if (sp_data.is_playing)  {
         // Update the LED indicator at the bottom of the array
-        double percent_complete = double(sp_data.progress_ms) / sp_data.duration_ms * 100;
-        Serial.println("Playing..." + String(percent_complete) + "%");
-
         int grid_pos = int(round(percent_complete / 100 * GRID_W));
-
+        
         for (int i=0; i<GRID_W; i++) {
           if (i < grid_pos) {
             leds[i] = CRGB::Red;
-          } else {
-            leds[i] = leds_last_row[i];
           }
         }
+        // for (int i=0; i<PALETTE_ENTRIES; i++) {
+        //   leds[i] = palette_crgb[i];
+        // }
       }
-
       FastLED.show();
+      move_servo();
+      xSemaphoreGive(mutex_display);  // release the display mutex
     }
-    // Serial.println("task_display_code: " + String(uxTaskGetStackHighWaterMark(NULL)));
+    vTaskDelay(100 / portTICK_RATE_MS);
   }
+  vTaskDelete(NULL);
 }
 
 void task_buttons_code(void *parameter) {
@@ -395,30 +448,25 @@ void task_buttons_code(void *parameter) {
     if (button_up.read_button() == LOW) {
       servo_pos += 1;
       move_servo();
-      vTaskDelay(SERVO_BUTTON_HOLD_DELAY_MS / portTICK_RATE_MS);  // slow down the button hold behavior
     }
     if (button_down.read_button() == LOW) {
       servo_pos -= 1;
       move_servo();
-      vTaskDelay(SERVO_BUTTON_HOLD_DELAY_MS / portTICK_RATE_MS);  // slow down the button hold behavior
     }
     if (button_mode.read_button() == LOW) {
-      xQueueSend(q_change_mode, &change_mode, 0);
+      Serial.println("Mode change");
+      //xQueueSend(q_change_mode, &change_mode, 0);
+
+      curr_mode = (curr_mode + 1) % 2;
+      if (curr_mode == MODE_AUDIO) servo_pos = 100;
+      if (curr_mode == MODE_ART) servo_pos = 70;
+      Serial.println("curr_mode = " + String(curr_mode));
+
+      FastLED.clear(true);
     }
-    if (Serial.available() > 0) {
-      char c = Serial.read();
-      switch (c) {
-        case 'f':
-          servo_pos -= 1;
-          move_servo();
-          break;
-        case 'b':
-          servo_pos += 1;
-          move_servo();
-          break;
-      }
-    }
+    vTaskDelay(SERVO_BUTTON_HOLD_DELAY_MS / portTICK_RATE_MS); // added to avoid starving other tasks
   }
+  vTaskDelete(NULL);
 }
 
 /*** Get audio data from I2S mic ***/
@@ -609,15 +657,65 @@ int grid_to_idx(int x, int y, bool start_top_left) {
   return idx;
 }
 
+void display_full_art(uint8_t idx) {
+  for (int row = 0; row < GRID_H; row++) {
+    for (int col = 0; col < GRID_W; col++) {
+      uint16_t rgb565 = full_art[row*4 + idx][col*4 + idx];
+      
+      uint8_t r5 = (rgb565 >> 11) & 0x1F;
+      uint8_t g6 = (rgb565 >> 5) & 0x3F;
+      uint8_t b5 = (rgb565) & 0x1F;
+
+      uint8_t r8 = round(pow(float(r5) / 31, LED_GAMMA / JPG_GAMMA) * 255);
+      uint8_t g8 = round(pow(float(g6) / 63, LED_GAMMA / JPG_GAMMA) * 255);
+      uint8_t b8 = round(pow(float(b5) / 31, LED_GAMMA / JPG_GAMMA) * 255);
+
+      // Serial.println(r5);
+      // Serial.println(g6);
+      // Serial.println(b5);
+
+      // Serial.println(r8);
+      // Serial.println(g8);
+      // Serial.println(b8);
+
+      // Serial.println();
+
+      int idx = grid_to_idx(col, row, true);
+      if (idx >= 0) {
+        leds[idx] = CRGB(r8, g8, b8);
+      }
+    }
+  }
+}
+
+bool copy_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) {
+  for (int row = 0; row < h; row++) {
+    for (int col = 0; col < w; col++) {
+      uint8_t full_row = y + row;
+      uint8_t full_col = x + col;
+      uint8_t bitmap_idx = row * w + col;
+      full_art[full_row][full_col] = bitmap[bitmap_idx];
+      if ((full_row % 4 == 0) && (full_col % 4 == 0)) {
+        palette_art[int(full_row / 4)][int(full_col / 4)] = bitmap[bitmap_idx];
+      }
+    }
+  }
+
+  return true;
+}
+
 bool display_image(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bitmap) {
   // Note bitmap is in RGB565 format!!!
 
   // Stop further decoding as image is running off bottom of screen
+  x /= 4;
+  y /= 4;
+  
   if (y >= GRID_H) return false;
 
   for (int row = 0; row < h; row++) {
     for (int col = 0; col < w; col++) {
-      uint16_t rgb565 = bitmap[row * w + col];
+      uint16_t rgb565 = bitmap[row * w * 4 + col * 4];
       uint8_t r5 = (rgb565 >> 11) & 0x1F;
       uint8_t g6 = (rgb565 >> 5) & 0x3F;
       uint8_t b5 = (rgb565) & 0x1F;
@@ -677,6 +775,7 @@ void get_spotify_player(SpotifyPlayerData_t *sp_data) {
 
   int httpCode = http.GET();
   String payload = http.getString();
+  http.end();
   // Serial.println(payload);
 
   Serial.print(String(httpCode) + ": ");
@@ -688,17 +787,20 @@ void get_spotify_player(SpotifyPlayerData_t *sp_data) {
         deserializeJson(json, payload);
         update_spotify_data(&json, sp_data);
 
-        // TODO: clean this up (getting the tempo)
-        http.end();
-        http.begin(SPOTIFY_ANALYSIS_URL + "/" + sp_data->track_id);
-        http.addHeader("Content-Type", "application/json");
-        http.addHeader("Accept", "application/json");
-        http.addHeader("Authorization", "Bearer " + token);
-        httpCode = http.GET();
-        payload = http.getString();
-        deserializeJson(json, payload);
-        sp_data->tempo = uint8_t(round(json["tempo"].as<float>()));
-        Serial.println("tempo: " + String(sp_data->tempo));
+        // // TODO: clean this up (getting the tempo)
+        // http.begin(SPOTIFY_ANALYSIS_URL + "/" + sp_data->track_id);
+        // http.addHeader("Content-Type", "application/json");
+        // http.addHeader("Accept", "application/json");
+        // http.addHeader("Authorization", "Bearer " + token);
+        // httpCode = http.GET();
+        // Serial.println("Free heap prior to http.getString: " + String(ESP.getFreeHeap()));
+        // payload = http.getString();
+        // Serial.println("Free heap after to http.getString: " + String(ESP.getFreeHeap()));
+        // http.end();
+
+        // deserializeJson(json, payload);
+        // sp_data->tempo = uint8_t(round(json["tempo"].as<float>()));
+        // Serial.println("tempo: " + String(sp_data->tempo));
 
         token_expired = false;
         break;
@@ -722,8 +824,6 @@ void get_spotify_player(SpotifyPlayerData_t *sp_data) {
       token_expired = true;
       break;
   }
-
-  http.end();
 }
 
 void update_spotify_data(DynamicJsonDocument *json, SpotifyPlayerData_t *sp_data) {
@@ -733,6 +833,7 @@ void update_spotify_data(DynamicJsonDocument *json, SpotifyPlayerData_t *sp_data
     sp_data->album = (*json)["item"]["album"]["name"].as<String>();
     
     JsonArray arr = (*json)["item"]["artists"].as<JsonArray>();
+    sp_data->artists = "";
     for (JsonVariant value : arr) {
       sp_data->artists += value["name"].as<String>() + " ";
     }
@@ -746,6 +847,7 @@ void update_spotify_data(DynamicJsonDocument *json, SpotifyPlayerData_t *sp_data
 
     int art_url_count = (*json)["item"]["album"]["images"].size(); // count number of album art URLs
     sp_data->art_url = (*json)["item"]["album"]["images"][art_url_count - 1]["url"].as<String>(); // the last one is the smallest, typically 64x64
+    sp_data->art_url.replace("https", "http");  // needed to eliminate SSL handshake errors
     sp_data->art_width = (*json)["item"]["album"]["images"][art_url_count - 1]["width"].as<int>();
     sp_data->is_art_loaded = false;
 
@@ -753,6 +855,7 @@ void update_spotify_data(DynamicJsonDocument *json, SpotifyPlayerData_t *sp_data
       sp_data->track_id = "";  // force next loop to check json again
     } else {
       get_spotify_art(sp_data);
+      decode_art(sp_data);
     }
 
     print_spotify_data(sp_data);
@@ -760,6 +863,28 @@ void update_spotify_data(DynamicJsonDocument *json, SpotifyPlayerData_t *sp_data
     sp_data->progress_ms = (*json)["progress_ms"].as<int>();
     sp_data->duration_ms = (*json)["item"]["duration_ms"].as<int>();
   }
+}
+
+// Decode art from jpg into full_art, and calculate palette
+void decode_art(SpotifyPlayerData_t *sp_data) {
+  Serial.println("Decoding art, " + String(sp_data->art_num_bytes) + " bytes");
+  TJpgDec.drawJpg(0, 0, sp_data->art_data, sp_data->art_num_bytes); // decode and copy jpg data into full_art
+
+  // Calculate color palette
+  mean_cut((uint16_t *)palette_art, 16*16, MEAN_CUT_DEPTH, (uint8_t *)palette_results);
+  Serial.println("Finished mean cut, printing returned results");
+  for (int i=0; i < PALETTE_ENTRIES; i++) {
+    Serial.println(String(palette_results[i][0]) + "," + String(palette_results[i][1]) + "," + String(palette_results[i][2]));
+    uint8_t r8 = round(pow(float(palette_results[i][0]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
+    uint8_t g8 = round(pow(float(palette_results[i][1]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
+    uint8_t b8 = round(pow(float(palette_results[i][2]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
+    palette_crgb[i] = CRGB(r8, g8, b8);
+  }
+
+  curr_palette = CRGBPalette16(palette_crgb[0], palette_crgb[1], palette_crgb[2], palette_crgb[3],
+                                palette_crgb[4], palette_crgb[5], palette_crgb[6], palette_crgb[7],
+                                palette_crgb[8], palette_crgb[9], palette_crgb[10], palette_crgb[11],
+                                palette_crgb[12], palette_crgb[13], palette_crgb[14], palette_crgb[15]);
 }
 
 // Fetch a file from the URL given and save it to memory
@@ -785,73 +910,72 @@ void get_spotify_art(SpotifyPlayerData_t *sp_data) {
 
   // Start connection and send HTTP header
   int httpCode = http.GET();
-  if (httpCode > 0) {
-    // fs::File f = SPIFFS.open(filename, "w+");
-    // if (!f) {
-    //   Serial.println("file open failed");
-    //   return 0;
-    // }
-    // HTTP header has been send and Server response header has been handled
-    //Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+  // if (httpCode > 0) {
+  //   // fs::File f = SPIFFS.open(filename, "w+");
+  //   // if (!f) {
+  //   //   Serial.println("file open failed");
+  //   //   return 0;
+  //   // }
+  //   // HTTP header has been send and Server response header has been handled
+  //   //Serial.printf("[HTTP] GET... code: %d\n", httpCode);
 
-    // File found at server
-    if (httpCode == HTTP_CODE_OK) {
+  //   // File found at server
+  if (httpCode == HTTP_CODE_OK) {
 
-      // Get length of document (is -1 when Server sends no Content-Length header)
-      int total = http.getSize();
+    // Get length of document (is -1 when Server sends no Content-Length header)
+    int total = http.getSize();
 
-      sp_data->art_num_bytes = total;
+    sp_data->art_num_bytes = total;
 
-      // Allocate memory in heap for the downloaded data
-      if (sp_data->art_data != NULL) {
-        Serial.println("Free heap prior to free: " + String(ESP.getFreeHeap()));
-        free(sp_data->art_data);   // if not NULL, we have previously allocated memory and should free it
-      }
-      Serial.println("Free heap prior to malloc: " + String(ESP.getFreeHeap()));
-      sp_data->art_data = (uint8_t *)malloc(sp_data->art_num_bytes * sizeof(*(sp_data->art_data))); // dereference the art_data pointer to get the size of each element (uint8_t)
-
-      int len = total;
-
-      // Create buffer for read
-      uint8_t buff[128] = { 0 };
-
-      // Get tcp stream
-      WiFiClient *stream = http.getStreamPtr();
-
-      // Read all data from server
-      while (http.connected() && (len > 0 || len == -1)) {
-        // Get available data size
-        size_t size = stream->available();
-
-        if (size) {
-          // Read up to 128 bytes
-          int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
-
-          // Write it to file
-          // f.write(buff, c);
-
-          // Write it to memory, (curr_art_size - len) is the number of bytes already written
-          memcpy(&(sp_data->art_data)[sp_data->art_num_bytes - len], buff, c);
-
-          // Calculate remaining bytes
-          if (len > 0) {
-            len -= c;
-          }
-        }
-        yield();
-      }
-      //Serial.println();
-      //Serial.print("[HTTP] connection closed or file end.\n");
+    // Allocate memory in heap for the downloaded data
+    if (sp_data->art_data != NULL) {
+      Serial.println("Free heap prior to free: " + String(ESP.getFreeHeap()));
+      free(sp_data->art_data);   // if not NULL, we have previously allocated memory and should free it
     }
-    // f.close();
+    Serial.println("Free heap prior to malloc: " + String(ESP.getFreeHeap()));
+    sp_data->art_data = (uint8_t *)malloc(sp_data->art_num_bytes * sizeof(*(sp_data->art_data))); // dereference the art_data pointer to get the size of each element (uint8_t)
+
+    int len = total;
+
+    // Create buffer for read
+    uint8_t buff[128] = { 0 };
+
+    // Get tcp stream
+    WiFiClient *stream = http.getStreamPtr();
+
+    // Read all data from server
+    while (http.connected() && (len > 0 || len == -1)) {
+      // Get available data size
+      size_t size = stream->available();
+
+      if (size) {
+        // Read up to 128 bytes
+        int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
+
+        // Write it to file
+        // f.write(buff, c);
+
+        // Write it to memory, (curr_art_size - len) is the number of bytes already written
+        memcpy(&(sp_data->art_data)[sp_data->art_num_bytes - len], buff, c);
+
+        // Calculate remaining bytes
+        if (len > 0) {
+          len -= c;
+        }
+      }
+      yield();
+    }
+    //Serial.println();
+    //Serial.print("[HTTP] connection closed or file end.\n");
+    sp_data->is_art_loaded = true;
+    Serial.println(String(millis() - start_ms) + "ms to download art");
   }
+    // f.close();
   else {
     Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+    sp_data->is_art_loaded = false;
   }
   http.end();
-
-  sp_data->is_art_loaded = true;
-  Serial.println(String(millis() - start_ms) + "ms to download art");
 }
 
 void print_spotify_data(SpotifyPlayerData_t *sp_data) {
