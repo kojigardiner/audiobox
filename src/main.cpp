@@ -660,7 +660,14 @@ int grid_to_idx(int x, int y, bool start_top_left) {
 void display_full_art(uint8_t idx) {
   for (int row = 0; row < GRID_H; row++) {
     for (int col = 0; col < GRID_W; col++) {
-      uint16_t rgb565 = full_art[row*4 + idx][col*4 + idx];
+      uint8_t full_row = row*4 + idx;
+      uint8_t full_col = col*4 + idx;
+
+      // Select the last row/col so artwork with borders looks cleaner
+      if (row == GRID_H-1) full_row = GRID_H * 4 - 1;
+      if (col == GRID_W-1) full_col = GRID_W * 4 - 1;
+
+      uint16_t rgb565 = full_art[full_row][full_col];
       
       uint8_t r5 = (rgb565 >> 11) & 0x1F;
       uint8_t g6 = (rgb565 >> 5) & 0x3F;
