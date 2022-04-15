@@ -14,7 +14,7 @@ class AudioProcessor {
         AudioProcessor(bool a_weighting_eq, bool white_noise_eq, bool perceptual_binning, bool volume_scaling);
 
         // Methods
-        void set_audio_samples(double *samples);
+        void get_audio_samples();
         void update_volume();
         void run_fft();
         void calc_intensity(int length);

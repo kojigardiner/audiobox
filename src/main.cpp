@@ -52,7 +52,6 @@ void move_servo();
 
 // Audio Functions
 void run_audio(AudioProcessor *ap);
-void get_audio_samples(double *samples);
 void set_leds_sym_snake_grid(AudioProcessor *ap);
 void set_leds_scrolling(AudioProcessor *ap);
 void set_leds_bars(AudioProcessor *ap);
@@ -311,24 +310,10 @@ void task_display_audio_code(void *parameter) {
 }
 
 void run_audio(AudioProcessor *ap) {  
-  double samples[FFT_SAMPLES];
 
-  // First audio samples are junk, so prime the system then delay
-  if (ap->audio_first_loop) {
-    get_audio_samples(samples);
-    delay(1000);
-  }
-  
-  get_audio_samples(samples);
-  // for (int i=0; i<FFT_SAMPLES; i++) {
-  //   Serial.println(samples[i]);
-  // }
-
-  ap->set_audio_samples(samples);
+  ap->get_audio_samples();
   ap->update_volume();
   ap->run_fft();
-
-  ap->audio_first_loop = false;
 
   audio_display_func[audio_display_idx](ap);
 }
@@ -480,39 +465,6 @@ void task_buttons_code(void *parameter) {
     vTaskDelay(SERVO_BUTTON_HOLD_DELAY_MS / portTICK_RATE_MS); // added to avoid starving other tasks
   }
   vTaskDelete(NULL);
-}
-
-/*** Get audio data from I2S mic ***/
-void get_audio_samples(double *samples) {
-  int32_t audio_val, audio_val_avg;
-  int32_t audio_val_sum = 0;
-  int32_t abs_val_sum = 0;
-  int32_t buffer[FFT_SAMPLES];
-  size_t bytes_read = 0;
-  int samples_read = 0;
-
-  i2s_read(I2S_PORT, (void*) buffer, sizeof(buffer), &bytes_read, portMAX_DELAY); // no timeout
-  samples_read = int(int(bytes_read) / sizeof(buffer[0])); // since a sample is 32 bits (4 bytes)
-
-  if (int(samples_read) != FFT_SAMPLES) {
-    Serial.println("Warning: " + String(int(samples_read)) + " audio samples read, " + String(FFT_SAMPLES) + " expected!");
-  }
-
-  uint8_t bit_shift_amount = 32 - I2S_MIC_BIT_DEPTH;
-
-  for (int i = 0; i < int(samples_read); i++) {
-    audio_val = buffer[i] >> bit_shift_amount;
-    audio_val_sum += audio_val;
-
-    samples[i] = double(audio_val);
-  }
-
-  // Remove the DC offset (average of samples)
-  audio_val_avg = int(double(audio_val_sum) / int(samples_read));     // DC offset
-  for (int i = 0; i < int(samples_read); i++) {
-    samples[i] -= audio_val_avg;                                // subtract DC offset
-    abs_val_sum += abs(samples[i]);
-  }
 }
 
 // Fill the x/y array of 8-bit noise values using the inoise8 function.

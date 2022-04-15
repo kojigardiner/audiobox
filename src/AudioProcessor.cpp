@@ -75,10 +75,44 @@ void AudioProcessor::_init_variables() {
     Serial.print("Audio processor variables initialized\n");
 }
 
-void AudioProcessor::set_audio_samples(double *samples) {
-  for (int i = 0; i < FFT_SAMPLES; i++) {
-    _v_real[i] = samples[i];
+/*** Get audio data from I2S mic ***/
+void AudioProcessor::get_audio_samples() {
+  int32_t audio_val, audio_val_avg;
+  int32_t audio_val_sum = 0;
+  int32_t buffer[FFT_SAMPLES];
+  size_t bytes_read = 0;
+  int samples_read = 0;
+
+  // First audio samples are junk, so prime the system then delay
+  if (audio_first_loop) {
+    i2s_read(I2S_PORT, (void*) buffer, sizeof(buffer), &bytes_read, portMAX_DELAY); // no timeout
+    delay(1000);
+  }
+  i2s_read(I2S_PORT, (void*) buffer, sizeof(buffer), &bytes_read, portMAX_DELAY); // no timeout
+  audio_first_loop = false;
+
+  // Check that we got the correct number of samples
+  samples_read = int(int(bytes_read) / sizeof(buffer[0])); // since a sample is 32 bits (4 bytes)
+  if (int(samples_read) != FFT_SAMPLES) {
+    Serial.println("Warning: " + String(int(samples_read)) + " audio samples read, " + String(FFT_SAMPLES) + " expected!");
+  }
+
+  uint8_t bit_shift_amount = 32 - I2S_MIC_BIT_DEPTH;
+
+  // Bitshift the data
+  for (int i = 0; i < int(samples_read); i++) {
+    audio_val = buffer[i] >> bit_shift_amount;
+    audio_val_sum += audio_val;
+
+    _v_real[i] = double(audio_val);
     _v_imag[i] = 0;
+  }
+
+  // Remove the DC offset (average of samples)
+  double normalize_factor = (1 << (I2S_MIC_BIT_DEPTH - 1)); // to normalize to 1.0
+  audio_val_avg = double(audio_val_sum) / samples_read;     // DC offset
+  for (int i = 0; i < int(samples_read); i++) {
+    _v_real[i] = (_v_real[i] - audio_val_avg) / 1; // normalize_factor    // Subtract DC offset
   }
 }
 
