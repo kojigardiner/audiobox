@@ -249,7 +249,7 @@ void mean_cut_recursive(uint16_t *rgb565_arr, uint32_t length, uint8_t depth, ui
     uint32_t length0 = split_idx; //int(length / 2);
     uint32_t length1 = length - split_idx; //length - length0;
 
-    Serial.println("length0="+String(length0)+",length1="+String(length1));
+    //Serial.println("length0="+String(length0)+",length1="+String(length1));
 
     // Copy the contents of our original array into the new split arrays
     uint16_t rgb565_arr_0[length0];

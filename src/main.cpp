@@ -37,6 +37,7 @@ void wu_pixel(uint16_t x, uint16_t y, CRGB* col);
 void get_spotify_token();
 void get_spotify_player(SpotifyPlayerData_t *sp_data);
 void update_spotify_data(DynamicJsonDocument *json, SpotifyPlayerData *sp_data);
+void get_and_update_spotify_features(SpotifyPlayerData *sp_data);
 void print_spotify_data(SpotifyPlayerData *sp_data);
 
 // Display Functions
@@ -57,7 +58,11 @@ void run_audio(AudioProcessor *ap);
 void get_audio_samples(double *samples);
 void set_leds_sym_snake_grid(AudioProcessor *ap);
 void set_leds_scrolling(AudioProcessor *ap);
-void (*audio_display_func[2]) (AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_scrolling};
+void set_leds_bars(AudioProcessor *ap);
+void set_leds_noise(AudioProcessor *ap);
+void (*audio_display_func[]) (AudioProcessor *) = {set_leds_noise, set_leds_bars, set_leds_sym_snake_grid}; //, set_leds_scrolling};
+//void (*audio_display_func[]) (AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_scrolling};
+
 
 /*** Globals ***/
 
@@ -70,7 +75,7 @@ QueueHandle_t q_sp_data;
 QueueHandle_t q_change_mode;
 SemaphoreHandle_t mutex_display;
 enum Modes { MODE_AUDIO, MODE_ART };
-uint8_t curr_mode = MODE_AUDIO;
+uint8_t curr_mode = MODE_ART;
 
 void task_spotify_code(void *parameter);
 void task_display_art_code(void *parameter);
@@ -99,6 +104,29 @@ const uint8_t PALETTE_ENTRIES = 1 << MEAN_CUT_DEPTH;
 uint8_t palette_results[PALETTE_ENTRIES][3] = { 0 };
 CRGB palette_crgb[PALETTE_ENTRIES];
 
+// The 16 bit version of our coordinates
+static uint16_t x;
+static uint16_t y;
+static uint16_t z;
+
+uint16_t target_x;
+uint16_t target_y;
+
+// We're using the x/y dimensions to map to the x/y pixels on the matrix.  We'll
+// use the z-axis for "time".  speed determines how fast time moves forward.  Try
+// 1 for a very slow moving effect, or 60 for something that ends up looking like
+// water.
+uint16_t speed = 1; // speed is set dynamically once we've started up
+
+// Scale determines how far apart the pixels in our noise matrix are.  Try
+// changing these values around to see how it affects the motion of the display.  The
+// higher the value of scale, the more "zoomed out" the noise iwll be.  A value
+// of 1 will be so zoomed in, you'll mostly see solid colors.
+uint16_t scale = 15; // scale is set dynamically once we've started up
+uint16_t target_scale = 15; // scale is set dynamically once we've started up
+
+// This is the array that we keep our computed noise values in
+uint8_t noise[GRID_H][GRID_W];
 
 /*** Color Palettes ***/
 // Gradient palette "Sunset_Real_gp", originally from
@@ -182,6 +210,11 @@ void setup() {
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
   }
+
+  // Initialize our coordinates to some random values
+  x = random16();
+  y = random16();
+  z = random16();
 
   Serial.print("Setup complete\n\n");
 
@@ -286,7 +319,7 @@ void task_display_audio_code(void *parameter) {
   Serial.print("task_display_audio_code running on core ");
   Serial.println(xPortGetCoreID());
 
-  AudioProcessor ap = AudioProcessor();
+  AudioProcessor ap = AudioProcessor(false, false, false, true);
   uint8_t change_mode = 0;  
 
   for (;;) {
@@ -301,19 +334,21 @@ void task_display_audio_code(void *parameter) {
     if (curr_mode == MODE_AUDIO) {
       xSemaphoreTake(mutex_display, portMAX_DELAY);
       move_servo();
+      // FastLED.setBrightness(MAX_BRIGHT);
       // EVERY_N_MILLIS(int(1000.0 / FPS)) {
-        run_audio(&ap);
-        FastLED.show();
+      run_audio(&ap);
+      FastLED.show();
       // }
       xSemaphoreGive(mutex_display);
     }
     vTaskDelay((1000 / FPS) / portTICK_RATE_MS);
+    //vTaskDelay(1); // TODO: check this
   }
 
   vTaskDelete(NULL);
 }
 
-void run_audio(AudioProcessor *ap) {
+void run_audio(AudioProcessor *ap) {  
   double samples[FFT_SAMPLES];
 
   // First audio samples are junk, so prime the system then delay
@@ -321,7 +356,11 @@ void run_audio(AudioProcessor *ap) {
     get_audio_samples(samples);
     delay(1000);
   }
+  
   get_audio_samples(samples);
+  // for (int i=0; i<FFT_SAMPLES; i++) {
+  //   Serial.println(samples[i]);
+  // }
 
   ap->set_audio_samples(samples);
   ap->update_volume();
@@ -344,6 +383,15 @@ void task_spotify_code(void *parameter) {
         get_spotify_token();
       }
       get_spotify_player(&sp_data);
+      if (sp_data.track_changed) {
+        get_and_update_spotify_features(&sp_data);
+        print_spotify_data(&sp_data);
+
+        speed = int(round(2 * sp_data.tempo / FPS));
+        if (sp_data.energy >= 0.75) speed *= 2;
+        if (speed < 1) speed = 1;
+        Serial.println("\tSpeed: " + String(speed));
+      }
       xQueueSend(q_sp_data, &sp_data, 0); // set timeout to zero so loop will continue until display is updated
     } else {
       Serial.println("Error: WiFi not connected! status = " + String(WiFi.status()));
@@ -409,9 +457,9 @@ void task_display_art_code(void *parameter) {
       //                                palette_crgb[8], palette_crgb[9], palette_crgb[10], palette_crgb[11],
       //                                palette_crgb[12], palette_crgb[13], palette_crgb[14], palette_crgb[15]);
       // }
-      if (q_return == pdTRUE) {
+      if (q_return == pdTRUE && sp_data.is_active == true) {
           percent_complete = double(sp_data.progress_ms) / sp_data.duration_ms * 100;
-          Serial.println("Playing..." + String(percent_complete) + "%");
+          //Serial.println("Playing..." + String(percent_complete) + "%");
       }
       // Display art and current elapsed regardless of if we have new data from the queue
       if (sp_data.is_art_loaded) {
@@ -429,12 +477,15 @@ void task_display_art_code(void *parameter) {
         // for (int i=0; i<PALETTE_ENTRIES; i++) {
         //   leds[i] = palette_crgb[i];
         // }
+      } else {
+        lissajous();
       }
+      //FastLED.setBrightness(int(MAX_BRIGHT * 0.75));
       FastLED.show();
       move_servo();
       xSemaphoreGive(mutex_display);  // release the display mutex
     }
-    vTaskDelay(100 / portTICK_RATE_MS);
+    vTaskDelay(10 / portTICK_RATE_MS);
   }
   vTaskDelete(NULL);
 }
@@ -458,7 +509,7 @@ void task_buttons_code(void *parameter) {
       //xQueueSend(q_change_mode, &change_mode, 0);
 
       curr_mode = (curr_mode + 1) % 2;
-      if (curr_mode == MODE_AUDIO) servo_pos = 100;
+      if (curr_mode == MODE_AUDIO) servo_pos = 115;
       if (curr_mode == MODE_ART) servo_pos = 70;
       Serial.println("curr_mode = " + String(curr_mode));
 
@@ -499,6 +550,143 @@ void get_audio_samples(double *samples) {
   for (int i = 0; i < int(samples_read); i++) {
     samples[i] -= audio_val_avg;                                // subtract DC offset
     abs_val_sum += abs(samples[i]);
+  }
+}
+
+// Fill the x/y array of 8-bit noise values using the inoise8 function.
+void fillnoise8() {
+  // If we're runing at a low "speed", some 8-bit artifacts become visible
+  // from frame-to-frame.  In order to reduce this, we can do some fast data-smoothing.
+  // The amount of data smoothing we're doing depends on "speed".
+  uint8_t dataSmoothing = 0;
+
+  scale = int(round((target_scale + scale) / 2)); // slowly move toward the new target_scale
+  x = int(round((target_x + x) / 2)); // slowly move toward the new target_x
+  y = int(round((target_y + y) / 2)); // slowly move toward the new target_y
+
+  if( speed < 50) {
+    dataSmoothing = 200 - (speed * 4);
+  }
+  
+  for(int i = 0; i < GRID_W; i++) {
+    int ioffset = scale * (i - int(GRID_W / 2));    // center the scale shift
+    for(int j = 0; j < GRID_H; j++) {
+      int joffset = scale * (j - int(GRID_H / 2));  // center the scale shift
+      
+      uint8_t data = inoise8(x + ioffset,y + joffset,z);
+
+      // The range of the inoise8 function is roughly 16-238.
+      // These two operations expand those values out to roughly 0..255
+      // You can comment them out if you want the raw noise data.
+      data = qsub8(data,16);
+      data = qadd8(data,scale8(data,39));
+
+      if( dataSmoothing ) {
+        uint8_t olddata = noise[i][j];
+        uint8_t newdata = scale8( olddata, dataSmoothing) + scale8( data, 256 - dataSmoothing);
+        data = newdata;
+      }
+      
+      noise[i][j] = data;
+    }
+  }
+  
+  z += speed;
+  
+  // apply slow drift to X and Y, just for visual variation.
+  // x += speed / 8;
+  // y -= speed / 16;
+}
+
+void mapNoiseToLEDsUsingPalette()
+{
+  static uint8_t ihue=0;
+  
+  for(int i = 0; i < GRID_W; i++) {
+    for(int j = 0; j < GRID_H; j++) {
+      // We use the value at the (i,j) coordinate in the noise
+      // array for our brightness, and the flipped value from (j,i)
+      // for our pixel's index into the color palette.
+
+      uint8_t index = noise[j][i];
+      uint8_t bri =   noise[i][j];
+
+      // // if this palette is a 'loop', add a slowly-changing base value
+      // if( colorLoop) { 
+      //   index += ihue;
+      // }
+
+      // brighten up, as the color palette itself often contains the 
+      // light/dark dynamic range desired
+      if( bri > 127 ) {
+        bri = 255;
+      } else {
+        bri = dim8_raw( bri * 2);
+      }
+
+      CRGB color = ColorFromPalette( curr_palette, index, bri);
+      leds[grid_to_idx(i,j, false)] = color;
+    }
+  }
+  
+  ihue+=1;
+}
+
+void set_leds_noise(AudioProcessor *ap) {
+  if (ap->beat_detected) {
+    uint8_t change_type = random8(6);   // select a random behavior
+
+    switch (change_type) {              // either change the scale or scan in XY
+      case 0:
+      case 1:
+        if (scale < 20) {
+          target_scale = scale + random8(20, 40);
+        } else if (scale > 40) {
+          target_scale = scale - random8(20, 40);
+        } else {
+          target_scale = scale - 15;
+        }
+        break;
+      case 2:
+        target_x = x + 16 * (random8(3, 7));
+        break;
+      case 3:
+        target_y = y + 16 * (random8(3, 7));
+        break;
+      case 4:
+        target_x = x - 16 * (random8(3, 7));
+        break;
+      case 5:
+        target_y = y - 16 * (random8(3, 7));
+        break;        
+    }
+  }
+
+    // generate noise data
+  fillnoise8();
+  
+  // convert the noise data to colors in the LED array
+  // using the current palette
+  mapNoiseToLEDsUsingPalette();
+}
+
+void set_leds_bars(AudioProcessor *ap) {
+  ap->calc_intensity_simple(GRID_W);
+
+  for (int bar_x = 0; bar_x < GRID_W; bar_x++) {
+    int max_y = int(round((float(ap->intensity[bar_x]) / 256) * GRID_H)); // scale the intensity by the grid height
+
+    for (int bar_y = 0; bar_y < GRID_H; bar_y++) {
+      if (bar_y <= max_y) {
+        leds[grid_to_idx(bar_x, bar_y, false)] = CRGB::Red;   // turn leds red up to the max value
+      } else {
+        if (ap->beat_detected) {
+          leds[grid_to_idx(bar_x, bar_y, false)] = CRGB::DimGray;
+        } else {
+          leds[grid_to_idx(bar_x, bar_y, false)] = CRGB::Black;
+        }
+      }
+    }
   }
 }
 
@@ -785,56 +973,87 @@ void get_spotify_player(SpotifyPlayerData_t *sp_data) {
   http.end();
   // Serial.println(payload);
 
-  Serial.print(String(httpCode) + ": ");
   switch (httpCode) {   // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
     case HTTP_CODE_OK:
       {
-        Serial.println("Information about playback");
         DynamicJsonDocument json(20000);
         deserializeJson(json, payload);
         update_spotify_data(&json, sp_data);
-
-        // // TODO: clean this up (getting the tempo)
-        // http.begin(SPOTIFY_ANALYSIS_URL + "/" + sp_data->track_id);
-        // http.addHeader("Content-Type", "application/json");
-        // http.addHeader("Accept", "application/json");
-        // http.addHeader("Authorization", "Bearer " + token);
-        // httpCode = http.GET();
-        // Serial.println("Free heap prior to http.getString: " + String(ESP.getFreeHeap()));
-        // payload = http.getString();
-        // Serial.println("Free heap after to http.getString: " + String(ESP.getFreeHeap()));
-        // http.end();
-
-        // deserializeJson(json, payload);
-        // sp_data->tempo = uint8_t(round(json["tempo"].as<float>()));
-        // Serial.println("tempo: " + String(sp_data->tempo));
 
         token_expired = false;
         break;
       }
     case HTTP_CODE_NO_CONTENT:
-      Serial.println("Playback not available/active");
+      Serial.println(String(httpCode) + ": Playback not available/active");
       token_expired = false;
       break;
     case HTTP_CODE_BAD_REQUEST:
     case HTTP_CODE_UNAUTHORIZED:
     case HTTP_CODE_FORBIDDEN:
-      Serial.println("Bad/expired token or OAuth request");
+      Serial.println(String(httpCode) + ": Bad/expired token or OAuth request");
       token_expired = true;
       break;
     case HTTP_CODE_TOO_MANY_REQUESTS:
-      Serial.println("Exceeded rate limits");
+      Serial.println(String(httpCode) + ": Exceeded rate limits");
       token_expired = false;
       break;
     default:
-      Serial.println("Unrecognized error");
+      Serial.println(String(httpCode) + ": Unrecognized error");
       token_expired = true;
       break;
   }
 }
 
+void get_and_update_spotify_features(SpotifyPlayerData_t *sp_data) {
+  HTTPClient http;
+  
+  http.begin(SPOTIFY_FEATURES_URL + "/" + sp_data->track_id);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Accept", "application/json");
+  http.addHeader("Authorization", "Bearer " + token);
+
+  int httpCode = http.GET();
+  String payload = http.getString();
+  http.end();
+  // Serial.println(payload);
+
+  switch (httpCode) {   // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
+    case HTTP_CODE_OK:
+      {
+        DynamicJsonDocument json(20000);
+        deserializeJson(json, payload);
+
+        sp_data->tempo = json["tempo"].as<float>();
+        sp_data->energy = json["energy"].as<float>();
+
+        token_expired = false;
+        break;
+      }
+    case HTTP_CODE_NO_CONTENT:
+      Serial.println(String(httpCode) + ": Playback not available/active");
+      token_expired = false;
+      break;
+    case HTTP_CODE_BAD_REQUEST:
+    case HTTP_CODE_UNAUTHORIZED:
+    case HTTP_CODE_FORBIDDEN:
+      Serial.println(String(httpCode) + ": Bad/expired token or OAuth request");
+      token_expired = true;
+      break;
+    case HTTP_CODE_TOO_MANY_REQUESTS:
+      Serial.println(String(httpCode) + ": Exceeded rate limits");
+      token_expired = false;
+      break;
+    default:
+      Serial.println(String(httpCode) + ": Unrecognized error");
+      token_expired = true;
+      break;
+  }
+}
+
+
 void update_spotify_data(DynamicJsonDocument *json, SpotifyPlayerData_t *sp_data) {
-  if (sp_data->track_id != (*json)["item"]["id"].as<String>()) {
+  if (sp_data->track_id != (*json)["item"]["id"].as<String>()) {    // if the track has changed
+    sp_data->track_changed = true;
     sp_data->track_id = (*json)["item"]["id"].as<String>();
     sp_data->track_title = (*json)["item"]["name"].as<String>();
     sp_data->album = (*json)["item"]["album"]["name"].as<String>();
@@ -864,9 +1083,8 @@ void update_spotify_data(DynamicJsonDocument *json, SpotifyPlayerData_t *sp_data
       get_spotify_art(sp_data);
       decode_art(sp_data);
     }
-
-    print_spotify_data(sp_data);
   } else {  // if it's the same track, just show how far we've advanced
+    sp_data->track_changed = false;
     sp_data->progress_ms = (*json)["progress_ms"].as<int>();
     sp_data->duration_ms = (*json)["item"]["duration_ms"].as<int>();
   }
@@ -998,6 +1216,8 @@ void print_spotify_data(SpotifyPlayerData_t *sp_data) {
   Serial.print("\tType: "); Serial.println(sp_data->device_type);
   Serial.print("\tActive: "); Serial.println(sp_data->is_active);
   Serial.print("\tVolume: "); Serial.println(sp_data->volume);
+  Serial.print("\tTempo: "); Serial.println(sp_data->tempo);
+  Serial.print("\tEnergy: "); Serial.println(sp_data->energy);
 }
 
 void nextPattern()

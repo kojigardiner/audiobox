@@ -27,6 +27,7 @@
 #define I2S_SAMPLE_RATE     22050           // audio sampling rate (per Nyquist, we can get up to sample rate/2 freqs in FFT
 #define I2S_MIC_BIT_DEPTH   18              // SPH0645 bit depth, per datasheet (18-bit 2's complement in 24-bit container)
 #define FFT_SAMPLES         256
+#define FFTS_PER_SEC        int(double(I2S_SAMPLE_RATE) / FFT_SAMPLES)   // number of FFTs computed each sec
 
 // Specific to audio volume control
 #define VOL_FACTOR          10              // empirically found that RMS of signal needs x10 to match RMS of FFT
@@ -34,6 +35,8 @@
 #define VOL_PEAK_FACTOR     1.5             // factor above avg for finding peaks
 #define VOL_AVG_SCALE       0.01 * 30/FPS            // exponential moving averaging scale factor for calculating running avg of volume
 #define VOL_THRESH          400             // threshold below which we shouldn't update LEDs as FFT data may not be reliable
+#define FFT_FIXED_MAX_VAL   5000 * VOL_MULT // value to use when not volume scaling
+#define HIGHEST_BASS_FREQ   130
 
 // Specific to audio LED
 #define BRIGHT_LEVELS       255             // number of levels of brightness to use
@@ -43,6 +46,7 @@
 #define LED_SMOOTHING       0.75 * 30/FPS            // smoothing factor for updating LEDs
 #define FFT_SCALE_POWER     1.5             // power by which to scale the FFT for LED intensity
 #define PALETTE_CHANGE_RATE 24              // default from https://gist.github.com/kriegsman/1f7ccbbfa492a73c015e
+#define NUM_AUDIO_BANDS     16
 
 // Specific to scrolling grid
 #define SCROLL_AVG_FACTOR   int(4 * 60/FPS) // number of frames to average to create a single vertical slice that scrolls
@@ -56,6 +60,7 @@
 
 // Macros
 #define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
+#define TIME_THIS(A) {unsigned long last_micros = micros(); A; Serial.println(micros() - last_micros);}
 
 #define FASTLED_ALLOW_INTERRUPTS 0          // TODO: check if we still need this
 #define FASTLED_INTERRUPT_RETRY_COUNT 1     // TODO: check if we still need this
@@ -133,6 +138,10 @@ const uint8_t PROGMEM GAMMA8[] = {
 // This version is a reverse gamma=2, with more compression at the higher end
 const uint8_t PROGMEM GAMMA8_FFT[] = {
   0, 2, 4, 6, 8, 10, 12, 14, 15, 17, 19, 21, 23, 25, 26, 28, 30, 32, 33, 35, 37, 39, 40, 42, 43, 45, 47, 48, 50, 51, 53, 54, 56, 57, 59, 60, 62, 63, 65, 66, 67, 69, 70, 71, 73, 74, 75, 77, 78, 79, 80, 82, 83, 84, 85, 86, 87, 88, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 101, 102, 103, 104, 105, 106, 107, 107, 108, 109, 110, 110, 111, 112, 112, 113, 114, 114, 115, 116, 116, 117, 117, 118, 118, 119, 119, 120, 120, 121, 121, 122, 122, 122, 123, 123, 124, 124, 124, 124, 125, 125, 125, 125, 126, 126, 126, 126, 126, 126, 127, 127, 127, 127, 127, 127, 127
+};
+
+const uint8_t PROGMEM EXP8_FFT[] = {
+  0, 4, 9, 13, 17, 21, 25, 29, 32, 36, 39, 42, 45, 48, 51, 54, 57, 59, 62, 64, 66, 69, 71, 73, 75, 77, 78, 80, 82, 84, 85, 87, 88, 90, 91, 92, 93, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 106, 107, 108, 108, 109, 110, 110, 111, 112, 112, 113, 113, 114, 114, 115, 115, 116, 116, 116, 117, 117, 118, 118, 118, 119, 119, 119, 119, 120, 120, 120, 120, 121, 121, 121, 121, 122, 122, 122, 122, 122, 123, 123, 123, 123, 123, 123, 123, 124, 124, 124, 124, 124, 124, 124, 124, 124, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 125, 126, 126, 126, 126, 126, 126, 126
 };
 
 /*** For FFT ***/

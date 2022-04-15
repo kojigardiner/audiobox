@@ -9,7 +9,7 @@ class AudioProcessor {
     public:
         // Constructors
         AudioProcessor();
-        AudioProcessor(bool a_weighting_eq, bool white_noise_eq, bool perceptual_binning);
+        AudioProcessor(bool a_weighting_eq, bool white_noise_eq, bool perceptual_binning, bool volume_scaling);
 
         // Methods
         void init_variables();
@@ -17,6 +17,8 @@ class AudioProcessor {
         void update_volume();
         void run_fft();
         void calc_intensity(int length);
+        void calc_intensity_simple(int length);
+        void print_double_array(double *arr, int len);
 
         // Variables for LEDs
         int intensity[NUM_LEDS] = { 0 };            // holds the brightness values to set the LEDs to
@@ -25,16 +27,23 @@ class AudioProcessor {
         double curr_volume = 0;                     // store instantaneous volume
         double avg_volume = 0;                      // running average of volumes
         double avg_peak_volume = 0;                 // running average of peak volumes
-        
+
+        // Variables for audio FFT bins
+        double low_bins[NUM_AUDIO_BANDS] = { 0 };
+        double high_bins[NUM_AUDIO_BANDS] = { 0 };
+
         bool audio_first_loop = true;
+        bool beat_detected = false;
 
     private:
         // Methods
+        void _setup_audio_bins();
         void _clear_fft_bin();
         double _calc_rms(double *arr, int len);
         void _perform_fft();
         void _postprocess_fft();
-        void _interpolate_fft(int new_length);
+        void _interpolate_fft(int old_length, int new_length);
+        void _detect_beat();
 
         // Variables for FFT
         arduinoFFT _FFT  = arduinoFFT(_v_real, _v_imag, FFT_SAMPLES, I2S_SAMPLE_RATE);
@@ -44,10 +53,18 @@ class AudioProcessor {
         double _fft_bin[FFT_SAMPLES / 2] = { 0.0 };   // will store "binned" FFT data
         double _fft_interp[NUM_LEDS] = { 0.0 };   // will store interpolated FFT data
 
+        // Variables for beat detection
+        int _highest_bass_bin = 0;
+        double _avg_bass = 0.0;
+        double _var_bass = 0.0;
+        double _bass_arr[FFTS_PER_SEC] = { 0.0 };
+        unsigned long _last_beat_ms = 0;
+
         // FFT post-processing options
         bool _WHITE_NOISE_EQ = true;
         bool _A_WEIGHTING_EQ = true;
         bool _PERCEPTUAL_BINNING = true;
+        bool _VOLUME_SCALING = true;
 
         // Variables for LEDs
         int _last_intensity[NUM_LEDS] { 0 };         // holds the last frame intensities for smoothing
