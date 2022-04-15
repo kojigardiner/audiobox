@@ -8,8 +8,6 @@
 #include <SPIFFS.h>
 #include <TJpg_Decoder.h>
 #include <arduinoFFT.h>
-#include <driver/i2s.h>
-#include <soc/i2c_reg.h>
 
 #include "Constants.h"
 #include "NetworkConstants.h"
@@ -53,14 +51,13 @@ void decode_art(SpotifyPlayerData_t *sp_data);
 void move_servo();
 
 // Audio Functions
-void i2s_init();
 void run_audio(AudioProcessor *ap);
 void get_audio_samples(double *samples);
 void set_leds_sym_snake_grid(AudioProcessor *ap);
 void set_leds_scrolling(AudioProcessor *ap);
 void set_leds_bars(AudioProcessor *ap);
 void set_leds_noise(AudioProcessor *ap);
-void (*audio_display_func[]) (AudioProcessor *) = {set_leds_noise, set_leds_bars, set_leds_sym_snake_grid}; //, set_leds_scrolling};
+void (*audio_display_func[]) (AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_noise, set_leds_bars}; //, set_leds_scrolling};
 //void (*audio_display_func[]) (AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_scrolling};
 
 
@@ -75,7 +72,7 @@ QueueHandle_t q_sp_data;
 QueueHandle_t q_change_mode;
 SemaphoreHandle_t mutex_display;
 enum Modes { MODE_AUDIO, MODE_ART };
-uint8_t curr_mode = MODE_ART;
+uint8_t curr_mode = MODE_AUDIO;
 
 void task_spotify_code(void *parameter);
 void task_display_art_code(void *parameter);
@@ -180,10 +177,6 @@ void setup() {
   myservo.attach(PIN_SERVO, SERVO_MIN_US, SERVO_MAX_US);
   servo_pos = myservo.read();   // Determine where the servo is
 
-  // Audio setup
-  i2s_init();
-  Serial.print("Audio init complete\n");
-
   // WiFi Setup
   Serial.print("Setting up wifi");
   WiFi.mode(WIFI_STA);
@@ -278,37 +271,6 @@ void setup() {
 
   // // Draw the image, top left at 0,0
   // TJpgDec.drawFsJpg(0, 0, "/rainbows.jpg");
-}
-
-/*** Initialize I2S for audio ADC ***/
-void i2s_init() {
-  i2s_config_t i2s_config = {
-    .mode = i2s_mode_t(I2S_MODE_MASTER | I2S_MODE_RX),
-    .sample_rate =  I2S_SAMPLE_RATE,             
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT, // I2S mic transfer only works with 32b
-    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = i2s_comm_format_t(I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB),
-    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-    .dma_buf_count = 4,
-    .dma_buf_len = FFT_SAMPLES,
-    .use_apll = false,
-    .tx_desc_auto_clear = false,
-    .fixed_mclk = 0
-  };
-
-  i2s_pin_config_t pin_config = {
-    .bck_io_num = PIN_I2S_BCK,   // Serial Clock (SCK)
-    .ws_io_num = PIN_I2S_WS,    // Word Select (WS)
-    .data_out_num = I2S_PIN_NO_CHANGE, // not used (only for speakers)
-    .data_in_num = PIN_I2S_DIN   // Serial Data (SD)
-  };
-
-  // Workaround for SPH0645 timing issue
-  REG_SET_BIT(I2S_TIMING_REG(I2S_PORT), BIT(9));
-  REG_SET_BIT(I2S_CONF_REG(I2S_PORT), I2S_RX_MSB_SHIFT);
-  
-  i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
-  i2s_set_pin(I2S_PORT, &pin_config);
 }
 
 void loop() {

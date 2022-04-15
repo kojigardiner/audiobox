@@ -4,6 +4,8 @@
 #include <Arduino.h>
 #include "arduinoFFT.h"
 #include "Constants.h"
+#include <driver/i2s.h>
+#include <soc/i2c_reg.h>
 
 class AudioProcessor {
     public:
@@ -12,7 +14,6 @@ class AudioProcessor {
         AudioProcessor(bool a_weighting_eq, bool white_noise_eq, bool perceptual_binning, bool volume_scaling);
 
         // Methods
-        void init_variables();
         void set_audio_samples(double *samples);
         void update_volume();
         void run_fft();
@@ -37,6 +38,8 @@ class AudioProcessor {
 
     private:
         // Methods
+        void _init_variables();
+        void _i2s_init();
         void _setup_audio_bins();
         void _clear_fft_bin();
         double _calc_rms(double *arr, int len);

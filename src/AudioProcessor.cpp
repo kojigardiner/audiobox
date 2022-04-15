@@ -2,7 +2,8 @@
 
 // Default constructors
 AudioProcessor::AudioProcessor() {
-  init_variables();
+  _i2s_init();
+  _init_variables();
 }
 
 // Alternate constructor to define FFT post-processing
@@ -12,10 +13,44 @@ AudioProcessor::AudioProcessor(bool white_noise_eq, bool a_weighting_eq, bool pe
   _PERCEPTUAL_BINNING = perceptual_binning;
   _VOLUME_SCALING = volume_scaling;
 
-  init_variables();
+  _i2s_init();
+  _init_variables();
 }
 
-void AudioProcessor::init_variables() {
+/*** Initialize I2S for audio ADC ***/
+void AudioProcessor::_i2s_init() {
+  i2s_config_t i2s_config = {
+    .mode = i2s_mode_t(I2S_MODE_MASTER | I2S_MODE_RX),
+    .sample_rate =  I2S_SAMPLE_RATE,             
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT, // I2S mic transfer only works with 32b
+    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+    .communication_format = i2s_comm_format_t(I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB),
+    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+    .dma_buf_count = 4,
+    .dma_buf_len = FFT_SAMPLES,
+    .use_apll = false,
+    .tx_desc_auto_clear = false,
+    .fixed_mclk = 0
+  };
+
+  i2s_pin_config_t pin_config = {
+    .bck_io_num = PIN_I2S_BCK,   // Serial Clock (SCK)
+    .ws_io_num = PIN_I2S_WS,    // Word Select (WS)
+    .data_out_num = I2S_PIN_NO_CHANGE, // not used (only for speakers)
+    .data_in_num = PIN_I2S_DIN   // Serial Data (SD)
+  };
+
+  // Workaround for SPH0645 timing issue
+  REG_SET_BIT(I2S_TIMING_REG(I2S_PORT), BIT(9));
+  REG_SET_BIT(I2S_CONF_REG(I2S_PORT), I2S_RX_MSB_SHIFT);
+  
+  i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
+  i2s_set_pin(I2S_PORT, &pin_config);
+  
+  Serial.print("Audio I2S init complete\n");
+}
+
+void AudioProcessor::_init_variables() {
     _setup_audio_bins();
 
    // Initialize arrays 
