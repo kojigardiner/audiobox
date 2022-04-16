@@ -86,6 +86,7 @@ SimplePatternList gPatterns = { };
 uint8_t gCurrentPatternNumber = 0;        // Index number of which pattern is current
 uint8_t gHue = 0;                         // rotating "base color" used by many of the patterns
 CRGBPalette16 curr_palette;
+CRGBPalette16 target_palette;
 double color_index = 0;
 TBlendType curr_blending = LINEARBLEND;
 CRGB colors_grid_wide[GRID_W * SCROLL_AVG_FACTOR][GRID_H] = {CRGB::Black};
@@ -297,6 +298,7 @@ void task_display_audio_code(void *parameter) {
       // FastLED.setBrightness(MAX_BRIGHT);
       // EVERY_N_MILLIS(int(1000.0 / FPS)) {
       run_audio(&ap);
+      nblendPaletteTowardPalette(curr_palette, target_palette, PALETTE_CHANGE_RATE);
       FastLED.show();
       // }
       xSemaphoreGive(mutex_display);
@@ -310,7 +312,7 @@ void task_display_audio_code(void *parameter) {
 
 void run_audio(AudioProcessor *ap) {  
 
-  ap->get_audio_samples();
+  ap->get_audio_samples_gapless();
   ap->update_volume();
   ap->run_fft();
   audio_display_func[audio_display_idx](ap);
@@ -1019,7 +1021,7 @@ void decode_art(SpotifyPlayerData_t *sp_data) {
     palette_crgb[i] = CRGB(r8, g8, b8);
   }
 
-  curr_palette = CRGBPalette16(palette_crgb[0], palette_crgb[1], palette_crgb[2], palette_crgb[3],
+  target_palette = CRGBPalette16(palette_crgb[0], palette_crgb[1], palette_crgb[2], palette_crgb[3],
                                 palette_crgb[4], palette_crgb[5], palette_crgb[6], palette_crgb[7],
                                 palette_crgb[8], palette_crgb[9], palette_crgb[10], palette_crgb[11],
                                 palette_crgb[12], palette_crgb[13], palette_crgb[14], palette_crgb[15]);

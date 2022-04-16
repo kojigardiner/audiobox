@@ -83,9 +83,11 @@ void AudioProcessor::_init_variables() {
 
 /*** Get audio data from I2S mic ***/
 void AudioProcessor::get_audio_samples() {
+  int samples_to_read = FFT_SAMPLES;
+
   int32_t audio_val, audio_val_avg;
   int32_t audio_val_sum = 0;
-  int32_t buffer[FFT_SAMPLES];
+  int32_t buffer[samples_to_read];
   size_t bytes_read = 0;
   int samples_read = 0;
 
@@ -99,8 +101,8 @@ void AudioProcessor::get_audio_samples() {
 
   // Check that we got the correct number of samples
   samples_read = int(int(bytes_read) / sizeof(buffer[0])); // since a sample is 32 bits (4 bytes)
-  if (int(samples_read) != FFT_SAMPLES) {
-    Serial.println("Warning: " + String(int(samples_read)) + " audio samples read, " + String(FFT_SAMPLES) + " expected!");
+  if (int(samples_read) != samples_to_read) {
+    Serial.println("Warning: " + String(int(samples_read)) + " audio samples read, " + String(samples_to_read) + " expected!");
   }
 
   uint8_t bit_shift_amount = 32 - I2S_MIC_BIT_DEPTH;
@@ -118,6 +120,50 @@ void AudioProcessor::get_audio_samples() {
   audio_val_avg = double(audio_val_sum) / samples_read;     // DC offset
   for (int i = 0; i < int(samples_read); i++) {
     _v_real[i] = (_v_real[i] - audio_val_avg) / scale_val;    // Subtract DC offset and scale to ±1
+  }
+}
+
+/*** Get audio data from I2S mic, only fill half the buffer each time and shift previous data up ***/
+void AudioProcessor::get_audio_samples_gapless() {
+  int samples_to_read = FFT_SAMPLES / 2;
+  int offset = FFT_SAMPLES - samples_to_read;
+
+  int32_t audio_val, audio_val_avg;
+  int32_t audio_val_sum = 0;
+  int32_t buffer[samples_to_read];
+  size_t bytes_read = 0;
+  int samples_read = 0;
+
+  // First audio samples are junk, so prime the system then delay
+  if (audio_first_loop) {
+    i2s_read(I2S_PORT, (void*) buffer, sizeof(buffer), &bytes_read, portMAX_DELAY); // no timeout
+    delay(1000);
+  }
+  i2s_read(I2S_PORT, (void*) buffer, sizeof(buffer), &bytes_read, portMAX_DELAY); // no timeout
+  audio_first_loop = false;
+
+  // Check that we got the correct number of samples
+  samples_read = int(int(bytes_read) / sizeof(buffer[0])); // since a sample is 32 bits (4 bytes)
+  if (int(samples_read) != samples_to_read) {
+    Serial.println("Warning: " + String(int(samples_read)) + " audio samples read, " + String(samples_to_read) + " expected!");
+  }
+
+  uint8_t bit_shift_amount = 32 - I2S_MIC_BIT_DEPTH;
+
+  // Bitshift the data
+  for (int i = 0; i < int(samples_read); i++) {
+    audio_val = buffer[i] >> bit_shift_amount;
+    audio_val_sum += audio_val;
+
+    _v_real[i] = _v_real[i + offset];        // shift previous data forward
+    _v_real[i + offset] = double(audio_val); // put new data in back of array
+    _v_imag[i] = 0;
+  }
+
+  double scale_val = (1 << (I2S_MIC_BIT_DEPTH - 1));
+  audio_val_avg = double(audio_val_sum) / samples_read;     // DC offset
+  for (int i = 0; i < int(samples_read); i++) {
+    _v_real[i + offset] = (_v_real[i + offset] - audio_val_avg) / scale_val;      // Subtract DC offset and scale to ±1
   }
 }
 

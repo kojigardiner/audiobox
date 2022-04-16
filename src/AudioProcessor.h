@@ -16,6 +16,7 @@ class AudioProcessor {
 
         // Methods
         void get_audio_samples();
+        void get_audio_samples_gapless();
         void update_volume();
         void run_fft();
         void calc_intensity(int length);
