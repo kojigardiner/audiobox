@@ -7,7 +7,6 @@
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 #include <TJpg_Decoder.h>
-#include <arduinoFFT.h>
 
 #include "Constants.h"
 #include "NetworkConstants.h"
@@ -56,7 +55,7 @@ void set_leds_sym_snake_grid(AudioProcessor *ap);
 void set_leds_scrolling(AudioProcessor *ap);
 void set_leds_bars(AudioProcessor *ap);
 void set_leds_noise(AudioProcessor *ap);
-void (*audio_display_func[]) (AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_noise, set_leds_bars}; //, set_leds_scrolling};
+void (*audio_display_func[]) (AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_noise};//, set_leds_bars}; //, set_leds_scrolling};
 //void (*audio_display_func[]) (AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_scrolling};
 
 
@@ -71,7 +70,7 @@ QueueHandle_t q_sp_data;
 QueueHandle_t q_change_mode;
 SemaphoreHandle_t mutex_display;
 enum Modes { MODE_AUDIO, MODE_ART };
-uint8_t curr_mode = MODE_AUDIO;
+uint8_t curr_mode = MODE_ART;
 
 void task_spotify_code(void *parameter);
 void task_display_art_code(void *parameter);
@@ -216,7 +215,7 @@ void setup() {
   xTaskCreate(
     task_spotify_code,      // Function to implement the task
     "task_spotify",         // Name of the task
-    20000,                  // Stack size in words
+    10000,                  // Stack size in words
     NULL,                   // Task input parameter
     1,                      // Priority of the task (don't use 0!)
     &task_spotify           // Task handle
@@ -234,7 +233,7 @@ void setup() {
   xTaskCreate(
     task_display_audio_code,        // Function to implement the task
     "task_display_audio",           // Name of the task
-    20000,                  // Stack size in words
+    30000,                  // Stack size in words
     NULL,                   // Task input parameter
     1,                      // Priority of the task (don't use 0!)
     &task_display_audio             // Task handle
@@ -280,7 +279,7 @@ void task_display_audio_code(void *parameter) {
   Serial.print("task_display_audio_code running on core ");
   Serial.println(xPortGetCoreID());
 
-  AudioProcessor ap = AudioProcessor(false, false, false, true);
+  AudioProcessor ap = AudioProcessor(false, false, true, true);
   uint8_t change_mode = 0;  
 
   for (;;) {
@@ -302,8 +301,8 @@ void task_display_audio_code(void *parameter) {
       // }
       xSemaphoreGive(mutex_display);
     }
-    vTaskDelay((1000 / FPS) / portTICK_RATE_MS);
-    //vTaskDelay(1); // TODO: check this
+    //vTaskDelay((1000 / FPS) / portTICK_RATE_MS);
+    vTaskDelay(1); // TODO: check this
   }
 
   vTaskDelete(NULL);
@@ -314,7 +313,6 @@ void run_audio(AudioProcessor *ap) {
   ap->get_audio_samples();
   ap->update_volume();
   ap->run_fft();
-
   audio_display_func[audio_display_idx](ap);
 }
 
@@ -345,7 +343,6 @@ void task_spotify_code(void *parameter) {
     }
     vTaskDelay(1000 / portTICK_RATE_MS);  // Run once a second
   }
-  // Serial.println("task_spotify_code: " + String(uxTaskGetStackHighWaterMark(NULL)));
   vTaskDelete(NULL);
 }
 
@@ -409,7 +406,7 @@ void task_display_art_code(void *parameter) {
           //Serial.println("Playing..." + String(percent_complete) + "%");
       }
       // Display art and current elapsed regardless of if we have new data from the queue
-      if (sp_data.is_art_loaded) {
+      if (sp_data.is_art_loaded && sp_data.is_active == true) {
         display_full_art(0);
         counter = (counter + 1) % 4;
 
@@ -432,6 +429,7 @@ void task_display_art_code(void *parameter) {
       move_servo();
       xSemaphoreGive(mutex_display);  // release the display mutex
     }
+    // Serial.println(uxTaskGetStackHighWaterMark(NULL));
     vTaskDelay(10 / portTICK_RATE_MS);
   }
   vTaskDelete(NULL);
@@ -454,14 +452,19 @@ void task_buttons_code(void *parameter) {
     if (button_mode.read_button() == LOW) {
       Serial.println("Mode change");
       //xQueueSend(q_change_mode, &change_mode, 0);
+      FastLED.clear(true); // clear before mode change in case task switches
 
       curr_mode = (curr_mode + 1) % 2;
-      if (curr_mode == MODE_AUDIO) servo_pos = 115;
+
+      if (curr_mode == MODE_AUDIO) {
+        audio_display_idx = (audio_display_idx + 1) % 2;
+        servo_pos = 115;
+      }
       if (curr_mode == MODE_ART) servo_pos = 70;
       Serial.println("curr_mode = " + String(curr_mode));
 
-      FastLED.clear(true);
     }
+    //Serial.println(uxTaskGetStackHighWaterMark(NULL));
     vTaskDelay(SERVO_BUTTON_HOLD_DELAY_MS / portTICK_RATE_MS); // added to avoid starving other tasks
   }
   vTaskDelete(NULL);
@@ -474,9 +477,9 @@ void fillnoise8() {
   // The amount of data smoothing we're doing depends on "speed".
   uint8_t dataSmoothing = 0;
 
-  scale = int(round((target_scale + scale) / 2)); // slowly move toward the new target_scale
-  x = int(round((target_x + x) / 2)); // slowly move toward the new target_x
-  y = int(round((target_y + y) / 2)); // slowly move toward the new target_y
+  scale = int(round((target_scale * 0.3) + (scale * 0.7))); // slowly move toward the new target_scale
+  x = int(round((target_x * 0.3) + (x * 0.7))); // slowly move toward the new target_x
+  y = int(round((target_y * 0.3) + (y * 0.7))); // slowly move toward the new target_y
 
   if( speed < 50) {
     dataSmoothing = 200 - (speed * 4);
@@ -552,26 +555,22 @@ void set_leds_noise(AudioProcessor *ap) {
 
     switch (change_type) {              // either change the scale or scan in XY
       case 0:
+        target_scale = constrain(scale + random8(30, 40), 10, 50);
+        break;
       case 1:
-        if (scale < 20) {
-          target_scale = scale + random8(20, 40);
-        } else if (scale > 40) {
-          target_scale = scale - random8(20, 40);
-        } else {
-          target_scale = scale - 15;
-        }
+        target_scale = constrain(scale - random8(30, 40), 10, 50);
         break;
       case 2:
-        target_x = x + 16 * (random8(3, 7));
+        target_x = constrain(x + 16 * (random8(3, 7)) * scale / 10, 0, 65535);  // scale by "scale" so that the moves look similar
         break;
       case 3:
-        target_y = y + 16 * (random8(3, 7));
+        target_y = constrain(y + 16 * (random8(3, 7)) * scale / 10, 0, 65535);
         break;
       case 4:
-        target_x = x - 16 * (random8(3, 7));
+        target_x = constrain(x - 16 * (random8(3, 7)) * scale / 10, 0, 65535);
         break;
       case 5:
-        target_y = y - 16 * (random8(3, 7));
+        target_y = constrain(y - 16 * (random8(3, 7)) * scale / 10, 0, 65535);
         break;        
     }
   }

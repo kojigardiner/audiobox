@@ -2,7 +2,7 @@
 #define _AUDIOPROCESSOR_H
 
 #include <Arduino.h>
-#include "arduinoFFT.h"
+#include "fft.h"
 #include "Constants.h"
 #include <driver/i2s.h>
 #include <soc/i2c_reg.h>
@@ -11,6 +11,7 @@ class AudioProcessor {
     public:
         // Constructors
         AudioProcessor();
+        ~AudioProcessor();
         AudioProcessor(bool a_weighting_eq, bool white_noise_eq, bool perceptual_binning, bool volume_scaling);
 
         // Methods
@@ -30,8 +31,10 @@ class AudioProcessor {
         double avg_peak_volume = 0;                 // running average of peak volumes
 
         // Variables for audio FFT bins
-        double low_bins[NUM_AUDIO_BANDS] = { 0 };
-        double high_bins[NUM_AUDIO_BANDS] = { 0 };
+        float center_bins[NUM_AUDIO_BANDS] = { 0 };
+        float bin_freqs[NUM_AUDIO_BANDS] = { 0 };
+        float low_bins[NUM_AUDIO_BANDS] = { 0 };
+        float high_bins[NUM_AUDIO_BANDS] = { 0 };
 
         bool audio_first_loop = true;
         bool beat_detected = false;
@@ -42,21 +45,22 @@ class AudioProcessor {
         void _i2s_init();
         void _setup_audio_bins();
         void _clear_fft_bin();
-        double _calc_rms(double *arr, int len);
+        double _calc_rms(float *arr, int len);
+        double _calc_rms_scaled(float *arr, int len);
         void _perform_fft();
         void _postprocess_fft();
         void _interpolate_fft(int old_length, int new_length);
         void _detect_beat();
 
         // Variables for FFT
-        arduinoFFT _FFT  = arduinoFFT(_v_real, _v_imag, FFT_SAMPLES, I2S_SAMPLE_RATE);
-        double _v_real[FFT_SAMPLES] = { 0.0 };   // will store audio samples, then replaced by FFT real data (up to FFT_SAMPLES / 2 length)
-        double _v_imag[FFT_SAMPLES] = { 0.0 };   // will store all zeros, then replaced by FFT imaginary data (up to FFT_SAMPLES / 2 length)
-        double _fft_clean[FFT_SAMPLES / 2] = { 0.0 };   // will store "cleaned" and equalized FFT data
+        fft_config_t *_real_fft_plan;
+        float _v_real[FFT_SAMPLES] = { 0.0 };   // will store audio samples, then replaced by FFT real data (up to FFT_SAMPLES / 2 length)
+        float _v_imag[FFT_SAMPLES] = { 0.0 };   // will store all zeros, then replaced by FFT imaginary data (up to FFT_SAMPLES / 2 length)
         double _fft_bin[FFT_SAMPLES / 2] = { 0.0 };   // will store "binned" FFT data
         double _fft_interp[NUM_LEDS] = { 0.0 };   // will store interpolated FFT data
 
         // Variables for beat detection
+        int _lowest_bass_bin = 0;
         int _highest_bass_bin = 0;
         double _avg_bass = 0.0;
         double _var_bass = 0.0;
@@ -73,7 +77,7 @@ class AudioProcessor {
         int _last_intensity[NUM_LEDS] { 0 };         // holds the last frame intensities for smoothing
 
         // Other variables
-        double _max_val = 0;                         // this is used to normalize the FFT outputs to [0 1]. set it lower to make the system "more sensitive". is auto-adjusted based on volume but empirically 1500 works pretty well.
+        double _max_fft_val = 0;                         // this is used to normalize the FFT outputs to [0 1]. set it lower to make the system "more sensitive". is auto-adjusted based on volume but empirically 1500 works pretty well.
 };
 
 #endif // _AUDIOPROCESSOR_H

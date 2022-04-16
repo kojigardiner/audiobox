@@ -1,9 +1,10 @@
 #include "AudioProcessor.h"
 
-// Default constructors
+// Default constructor
 AudioProcessor::AudioProcessor() {
   _i2s_init();
   _init_variables();
+  _real_fft_plan = fft_init(FFT_SAMPLES, FFT_REAL, FFT_FORWARD, _v_real, _v_imag);
 }
 
 // Alternate constructor to define FFT post-processing
@@ -15,6 +16,12 @@ AudioProcessor::AudioProcessor(bool white_noise_eq, bool a_weighting_eq, bool pe
 
   _i2s_init();
   _init_variables();
+  _real_fft_plan = fft_init(FFT_SAMPLES, FFT_REAL, FFT_FORWARD, _v_real, _v_imag);
+}
+
+// Destructor (make sure to destroy the fft)
+AudioProcessor::~AudioProcessor() {
+  fft_destroy(_real_fft_plan);
 }
 
 /*** Initialize I2S for audio ADC ***/
@@ -62,10 +69,9 @@ void AudioProcessor::_init_variables() {
     memset(_v_real, 0, sizeof(_v_real));
     memset(_v_imag, 0, sizeof(_v_imag));
     
-    memset(_fft_clean, 0, sizeof(_fft_clean));
     memset(_fft_bin, 0, sizeof(_fft_bin));
 
-    _max_val = 0;
+    _max_fft_val = 0;
     
     audio_first_loop = true;
     curr_volume = 0;
@@ -108,17 +114,18 @@ void AudioProcessor::get_audio_samples() {
     _v_imag[i] = 0;
   }
 
-  // Remove the DC offset (average of samples)
-  double normalize_factor = (1 << (I2S_MIC_BIT_DEPTH - 1)); // to normalize to 1.0
+  double scale_val = (1 << (I2S_MIC_BIT_DEPTH - 1));
   audio_val_avg = double(audio_val_sum) / samples_read;     // DC offset
   for (int i = 0; i < int(samples_read); i++) {
-    _v_real[i] = (_v_real[i] - audio_val_avg) / 1; // normalize_factor    // Subtract DC offset
+    _v_real[i] = (_v_real[i] - audio_val_avg) / scale_val;    // Subtract DC offset and scale to ±1
   }
 }
 
 void AudioProcessor::update_volume() {
   // Use exponential moving average, simpler than creating an actual moving avg array
-  curr_volume = _calc_rms(_v_real, FFT_SAMPLES) * VOL_FACTOR;
+  // curr_volume = _calc_rms(_v_real, FFT_SAMPLES);
+  curr_volume = _calc_rms_scaled(_v_real, FFT_SAMPLES);
+
   if (audio_first_loop) { // the first time through the loop, we have no history, so set the avg volume to the curr volume
     avg_volume = curr_volume;
   } else {
@@ -130,80 +137,99 @@ void AudioProcessor::update_volume() {
   }
   
   if (_VOLUME_SCALING) {
-    _max_val = avg_volume * VOL_MULT;
-    if (_max_val < 1.0) {
-      _max_val = 1.0;        // since max_val is a divider, avoid less than 1
-    }
+    _max_fft_val = avg_volume * VOL_MULT;
+    // if (_max_fft_val < 1.0) {
+    //   _max_fft_val = 1.0;        // since max_val is a divider, avoid less than 1
+    // }
   } else {
-    _max_val = FFT_FIXED_MAX_VAL; // fixed value if we are not scaling
+    _max_fft_val = FFT_FIXED_MAX_VAL; // fixed value if we are not scaling
   }
 
-  // Serial.print(curr_volume);
+  // Serial.print(curr_volume*10,8);
   // Serial.print(",");
-  // Serial.println(avg_volume);
-
+  // Serial.println(avg_volume*10,8);
 }
 
 void AudioProcessor::run_fft() {
   _perform_fft();
+  // for (int i=0; i < FFT_SAMPLES/2; i++) {
+  //   Serial.print(_v_real[i], 16);
+  //   Serial.print(",");
+  // }
+  // Serial.println("");
+
   _postprocess_fft();
   _detect_beat();
+
   // Serial.print(_fft_bin[1]); Serial.print(","); Serial.print((_fft_bin[4] + _fft_bin[5] + _fft_bin[6] + _fft_bin[7] + _fft_bin[8]) / 5);
   // Serial.print("\n");
 }
 
 void AudioProcessor::_setup_audio_bins() {
-  int sample_rate = I2S_SAMPLE_RATE;
-  double nyquist_freq = sample_rate / 2.0;
-  int nsamples = FFT_SAMPLES;
-  int nbands = NUM_AUDIO_BANDS;
-
-  int lowest_freq = 100;
-  int highest_freq = 12000;
-
+  double nyquist_freq = I2S_SAMPLE_RATE / 2.0;
+  double lowest_freq = LOWEST_FREQ_BAND;
+  double highest_freq = HIGHEST_FREQ_BAND;
 
   if (highest_freq > nyquist_freq) {
     highest_freq = int(nyquist_freq);
     Serial.println("WARNING: highest frequency bin set to Nyquist, " + String(highest_freq));
   }
 
-  double freq_mult_per_band = pow(double(highest_freq) / lowest_freq, 1.0 / (nbands - 1));
+  double freq_mult_per_band = pow(double(highest_freq) / lowest_freq, 1.0 / (NUM_AUDIO_BANDS - 1));
   
   
-  double bin_width = double(sample_rate) / nsamples;
-  double nbins = nsamples / 2.0 - 1;
+  double bin_width = double(I2S_SAMPLE_RATE) / FFT_SAMPLES;
+  double nbins = FFT_SAMPLES / 2.0 - 1;
 
-  _highest_bass_bin = int(ceil(HIGHEST_BASS_FREQ / bin_width) - 1);
+  // We want to be conservative here and not pick up too much out-of-band noise. So use ceil and floor
+  _lowest_bass_bin = int(ceil(LOWEST_BASS_FREQ / bin_width) - 1);
+  _highest_bass_bin = int(floor(HIGHEST_BASS_FREQ / bin_width) - 1);
+  Serial.println("lowest bass bin = " + String(_lowest_bass_bin) + ", lowest bass freq = " + String(((_lowest_bass_bin + 1) * bin_width)));
   Serial.println("highest bass bin = " + String(_highest_bass_bin) + ", highest bass freq = " + String(((_highest_bass_bin + 1) * bin_width)));
 
   Serial.print(String(freq_mult_per_band) + "," + String(nyquist_freq) + "," + String(bin_width) + "," + String(nbins) + "\n");
-  double center_bins[nbands] = { 0 };
-  double freqs[nbands] = { 0 };
 
-  for (int band = 0; band < nbands; band++) {
-    freqs[band] = lowest_freq * pow(freq_mult_per_band, band);
-    center_bins[band] = freqs[band] / bin_width;
+  for (int band = 0; band < NUM_AUDIO_BANDS; band++) {
+    bin_freqs[band] = lowest_freq * pow(freq_mult_per_band, band);
+    center_bins[band] = bin_freqs[band] / bin_width;
   }
 
-  for (int band = 0; band < nbands-1; band++) {
+  for (int band = 0; band < NUM_AUDIO_BANDS-1; band++) {
     high_bins[band] = (center_bins[band+1] - center_bins[band])/2.0 + center_bins[band];
   }
-  high_bins[nbands-1] = nbins;
+  high_bins[NUM_AUDIO_BANDS-1] = nbins;
 
-  for (int band = nbands-1; band >= 1; band--) {
+  for (int band = NUM_AUDIO_BANDS-1; band >= 1; band--) {
     low_bins[band] = high_bins[band-1];
   }
   low_bins[0] = 0;
 
-  for (int i=0; i<nbands; i++) {
-    Serial.print(String(int(round(freqs[i]))) + "," + String(int(round(low_bins[i]))) + "," + String(int(round(high_bins[i]))) + "\n");
+  for (int i=0; i<NUM_AUDIO_BANDS; i++) {
+    Serial.print(String(int(round(bin_freqs[i]))) + "," + String(int(round(low_bins[i]))) + "," + String(int(round(high_bins[i]))) + "\n");
   }
 }
 
 void AudioProcessor::_perform_fft() {
-  _FFT.Windowing(FFT_WIN_TYP_HAMMING, FFT_FORWARD);
-  _FFT.Compute(FFT_FORWARD);
-  _FFT.ComplexToMagnitude();
+  fft_execute(_real_fft_plan);
+  // FFT results go into _v_imag, so we need to extract them and put them back int to _v_real
+
+  memset(_v_real, 0, sizeof(_v_real));      // clear out the _v_real array
+
+  // Data format from documentation
+  // Input  : [ x[0], x[1], x[2], ..., x[NFFT-1] ]
+  // Output : [ X[0], X[NFFT/2], Re(X[1]), Im(X[1]), ..., Re(X[NFFT/2-1]), Im(X[NFFT/2-1]) ]
+
+  //_v_real[0] = _v_imag[0] / FFT_SAMPLES;  // DC term is zeroth element
+
+  // Other terms alternate between real & imag so we need to calculate the amplitude
+  for (int i = 1; i < FFT_SAMPLES / 2; i++) {
+    double real, imag, magnitude, amplitude;
+    real = _v_imag[i * 2];            // index: 2, 4, 6, ... , (FFT_SAMPLES/2 - 1) * 2
+    imag = _v_imag[i * 2 + 1];        // index: 3, 5, 7, ... , (FFT_SAMPLES/2 - 1) * 2 + 1
+    magnitude = sqrt(pow(real, 2) + pow(imag, 2));
+    amplitude = magnitude * 2 / FFT_SAMPLES;  // scale factor
+    _v_real[i-1] = amplitude; // skip the 0th term because it is the DC value, which we don't want to plot
+  }
 }
 
 void AudioProcessor::_postprocess_fft() {
@@ -218,36 +244,46 @@ void AudioProcessor::_postprocess_fft() {
   _clear_fft_bin();      // clear out the fft_bin array as it has stale values
 
   for (int i = 0; i < FFT_SAMPLES / 2; i++) {
-    _fft_clean[i] = (double(_v_real[i]) - double(FFT_REMOVE[i])) / _max_val;        // remove noise and scale by max_val
-    //_fft_clean[i] = (double(_v_real[i]) - 0) / _max_val;        // remove noise and scale by max_val
-    if (_fft_clean[i] < 0) {
-      _fft_clean[i] = 0;
+    _v_real[i] = (double(_v_real[i]) - double(FFT_REMOVE[i])) / _max_fft_val;        // remove noise and scale by max_val
+    //_v_real[i] = (double(_v_real[i]) - 0) / _max_fft_val;        // remove noise and scale by max_val
+    if (_v_real[i] < 0) {
+      _v_real[i] = 0;
     }
 
     if (_WHITE_NOISE_EQ) {    // apply white noise eq
       eq_mult = 255.0 / double(FFT_EQ[i]);
-      _fft_clean[i] *= eq_mult;
+      _v_real[i] *= eq_mult;
     }
     if (_A_WEIGHTING_EQ) {    // apply A-weighting eq
       a_weighting_mult = (double(A_WEIGHTING[i]) / 255.0);
-      _fft_clean[i] *= a_weighting_mult;
+      _v_real[i] *= a_weighting_mult;
     }
-    if (_PERCEPTUAL_BINNING) {           // apply perceptual binning
-      curr_bin = i;
-      mapped_bin = pgm_read_byte(&GAMMA8_FFT[i]);
+    // if (_PERCEPTUAL_BINNING) {           // apply perceptual binning, old version
+    //   curr_bin = i;
+    //   mapped_bin = pgm_read_byte(&GAMMA16_FFT[i]);
 
-      // accumulate FFT samples in the new mapped bin
-      _fft_bin[mapped_bin] += _fft_clean[curr_bin];
+    //   // accumulate FFT samples in the new mapped bin
+    //   _fft_bin[mapped_bin] += _v_real[curr_bin];
 
-    // if (_PERCEPTUAL_BINNING) {
-    //   if (i == 0) _fft_bin[i] += _fft_clean[i];
+    if (_PERCEPTUAL_BINNING) {           // apply perceptual binning, only maps the lower half of the samples
+      if (i < FFT_SAMPLES / 4) {
+        curr_bin = i;
+        mapped_bin = GAMMA16_FFT[i]*2;  // multiply by 2 to get the full mapping
+
+        // accumulate FFT samples in the new mapped bin
+        _fft_bin[mapped_bin] += _v_real[curr_bin];
+      }
+    // if (_PERCEPTUAL_BINNING) {                     // this is too slow!
+    //   if (i == 0) _fft_bin[i] += _v_real[i];
     //   else {
     //     for (int j=0; j < NUM_AUDIO_BANDS; j++) {
-    //       if (i>int(round(low_bins[j])) && i<=int(round(high_bins[j]))) _fft_bin[j]  += _fft_clean[i];
+    //       if (i>int(round(low_bins[j])) && i<=int(round(high_bins[j]))) _fft_bin[j]  += _v_real[i];
     //     }
     //   }
+    // if (_PERCEPTUAL_BINNING) {
+    //   _fft_bin[i] += _v_real[int(round(center_bins[i]))];
     } else {
-      _fft_bin[i] = _fft_clean[i];
+      _fft_bin[i] = _v_real[i];
     }
   }
   if (_PERCEPTUAL_BINNING) {
@@ -268,39 +304,42 @@ void AudioProcessor::_detect_beat() {
   _bass_arr[FFTS_PER_SEC - 1] = 0; // reset last element
 
   double curr_bass = 0.0;
-  for (int i = 0; i < _highest_bass_bin; i++) {
+  for (int i = _lowest_bass_bin; i <= _highest_bass_bin; i++) {  // up to and including the highest bin
     // accumulate the bass from the clean (e.g. not perceptually-binned) FFT
-    curr_bass += constrain(_fft_clean[i], 0, 1); // constrain to 0 to 1 to ensure avg & variance calcs work
+    curr_bass += (_v_real[i]);
   }
-  curr_bass /= _highest_bass_bin; // average the bass bins
+  curr_bass /= (_highest_bass_bin - _lowest_bass_bin + 1); // average the bass bins (note we went up to and including the highest bin so add 1 here)
   _bass_arr[FFTS_PER_SEC - 1] = curr_bass;
 
   double bass_sum = 0.0;
-  double bass_minus_avg_sq_sum = 0.0;
   double bass_max = 0.0;
   for (int i = 0; i < FFTS_PER_SEC; i++) {
     bass_sum += _bass_arr[i]; // compute the sum of the history
-    bass_minus_avg_sq_sum += ((_bass_arr[i] - _avg_bass) * (_bass_arr[i] - _avg_bass));
     if (_bass_arr[i] > bass_max) {
       bass_max = _bass_arr[i];
     }
   }
-
   _avg_bass = bass_sum / FFTS_PER_SEC;  // compute the avg
+  
+  double bass_minus_avg_sq_sum = 0.0;
+  for (int i = 0; i < FFTS_PER_SEC; i++) {
+    bass_minus_avg_sq_sum += ((_bass_arr[i] - _avg_bass) * (_bass_arr[i] - _avg_bass));
+  }
   _var_bass = bass_minus_avg_sq_sum / FFTS_PER_SEC;  // compute the var
+
   //double _thresh_bass = (-15 * _var_bass + 1.55) * _avg_bass;
   //double _thresh_bass = (bass_max - _avg_bass) * 0.5 + _avg_bass;
-  double _thresh_bass = _avg_bass + 7 * _var_bass;
+  double _thresh_bass = _avg_bass + 1.5 * sqrt(_var_bass);
 
   // must be loud enough, over thresh, and not too soon after the latest beat
-  if (curr_bass > 0.2 && curr_bass > _thresh_bass && (millis() - _last_beat_ms) > 200) {
+  if (curr_bass > _thresh_bass && (20*log10(curr_volume)) > VOL_THRESH_DB && (millis() - _last_beat_ms) > 200) {
     beat_detected = true;
     _last_beat_ms = millis();
   } else {
     beat_detected = false;
   }
 
-  //Serial.print(String(curr_bass*10) + "," + String(_avg_bass*10) + "," + String(_var_bass*10) + "," + String(_thresh_bass*10) + "\n");
+  //Serial.print(String(20*log10(curr_volume)) + "," + String(20*log10(avg_volume)) + "," + String(curr_bass) + "," + String(_avg_bass) + "," + String(_thresh_bass) + "," + String(curr_bass / bass_max) + "\n");
 }
 
 void AudioProcessor::calc_intensity(int length) {
@@ -310,14 +349,22 @@ void AudioProcessor::calc_intensity(int length) {
     if (_fft_interp[i] < 0) {
       _fft_interp[i] = 0;
     }
-
     double constrain_val = constrain(_fft_interp[i], 0, 1);                  // cap the range at [0 1]
-    double pow_val = pow(constrain_val, FFT_SCALE_POWER) * _max_val;          // raise to the power to increase sensitivity, multiply by max value to increase resolution
-    int map_val = map(pow_val, 0, _max_val, 0, BRIGHT_LEVELS);                // scale this into discrete LED brightness levels
+    double pow_val = pow(constrain_val, FFT_SCALE_POWER);          // raise to the power to increase sensitivity, multiply by max value to increase resolution
+    //double pow_val = constrain_val;
+    //int map_val = map(pow_val, 0, 1, 0, BRIGHT_LEVELS);                // scale this into discrete LED brightness levels
+    int map_val = int(round(pow_val * BRIGHT_LEVELS));
 
+    // Serial.print(constrain_val, 8);
+    // Serial.print(",");
+    // Serial.print(pow_val, 8);
+    // Serial.print(",");
+    // Serial.println(map_val);
+  
     intensity[i] -= FADE;            // fade first
+    if (intensity[i] < 0) intensity[i] = 0;
 
-    if ((map_val >= intensity[i]) && (curr_volume > VOL_THRESH) && (map_val >= MIN_BRIGHT_UPDATE)) {   // if the FFT value is brighter AND our volume is loud enough that we trust the data AND it is brighter than our min thresh, update
+    if ((map_val >= intensity[i]) && (20*log10(avg_volume) > VOL_THRESH_DB) && (map_val >= MIN_BRIGHT_UPDATE)) {  // if the FFT value is brighter AND our volume is loud enough that we trust the data AND it is brighter than our min thresh, update
       intensity[i] = map_val;
       intensity[i] = _last_intensity[i] * (1 - LED_SMOOTHING) + intensity[i] * (LED_SMOOTHING); // apply a smoothing parameter
     }
@@ -335,10 +382,10 @@ void AudioProcessor::calc_intensity_simple(int length) {
 
   // bin down using the audio bands
   for (int i=0; i < FFT_SAMPLES / 2; i++) {
-    if (i == 0) _fft_bin[i] += _fft_clean[i];
+    if (i == 0) _fft_bin[i] += _v_real[i];
     else {
       for (int j=0; j < NUM_AUDIO_BANDS; j++) {
-        if (i>int(round(low_bins[j])) && i<=int(round(high_bins[j]))) _fft_bin[j]  += _fft_clean[i];
+        if (i>int(round(low_bins[j])) && i<=int(round(high_bins[j]))) _fft_bin[j]  += _v_real[i];
       }
     }
   }
@@ -353,8 +400,8 @@ void AudioProcessor::calc_intensity_simple(int length) {
   //   }
 
   //   double constrain_val = constrain(_fft_interp[i], 0, 1);                  // cap the range at [0 1]
-  //   double pow_val = pow(constrain_val, FFT_SCALE_POWER) * _max_val;          // raise to the power to increase sensitivity, multiply by max value to increase resolution
-  //   int map_val = map(pow_val, 0, _max_val, 0, BRIGHT_LEVELS);                // scale this into discrete LED brightness levels
+  //   double pow_val = pow(constrain_val, FFT_SCALE_POWER) * _max_fft_val;          // raise to the power to increase sensitivity, multiply by max value to increase resolution
+  //   int map_val = map(pow_val, 0, _max_fft_val, 0, BRIGHT_LEVELS);                // scale this into discrete LED brightness levels
 
   //   intensity[i] -= FADE * 20;            // fade first
 
@@ -382,12 +429,25 @@ void AudioProcessor::print_double_array(double *arr, int len) {
   Serial.print("\n");
 }
 
-double AudioProcessor::_calc_rms(double *arr, int len) {
+double AudioProcessor::_calc_rms(float *arr, int len) {
   double sum = 0;
+
   for (int i=0; i<len; i++) {
     sum = sum + arr[i]*arr[i];
   }
   return sqrt(sum/len);
+}
+
+// Calculate RMS accounting for max RMS
+double AudioProcessor::_calc_rms_scaled(float *arr, int len) {
+  double sum = 0;
+  double rms_scale_val = sqrt(2) / 2;
+
+  for (int i=0; i<len; i++) {
+    sum = sum + arr[i] * arr[i];
+  }
+
+  return constrain(sqrt(sum/len) / rms_scale_val, 0, 1);
 }
 
 void AudioProcessor::_clear_fft_bin() {
