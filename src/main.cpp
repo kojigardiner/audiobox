@@ -148,16 +148,25 @@ bool token_expired = true;
 String token = "";
 
 // Button Globals
-Button button_up = Button(PIN_BUTTON_UP);
-Button button_down = Button(PIN_BUTTON_DOWN);
+// Button button_up = Button(PIN_BUTTON_UP);
+// Button button_down = Button(PIN_BUTTON_DOWN);
 Button button_mode = Button(PIN_BUTTON_MODE);
 
 void setup() {
-  // Turn on status LED to indicate program has loaded
   pinMode(PIN_LED_STATUS, OUTPUT);
+  pinMode(PIN_BUTTON_LED, OUTPUT);
+  pinMode(PIN_POWER_SWITCH, INPUT_PULLUP);
+
+  // Turn on status LED to indicate program has loaded
   digitalWrite(PIN_LED_STATUS, HIGH);
 
   Serial.begin(115200);         // debug serial terminal
+
+  esp_sleep_enable_ext0_wakeup(PIN_POWER_SWITCH, LOW);  // setup wake from sleep
+  if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
+    Serial.println("Switch is high, going to sleep");
+    esp_deep_sleep_start(); // go to sleep if switch is high
+  }
 
   Serial.print("Initial safety delay\n");
   delay(3000);                  // power-up safety delay for LEDs
@@ -209,6 +218,9 @@ void setup() {
   z = random16();
 
   Serial.print("Setup complete\n\n");
+
+  // Turn on button LED to indicate setup is complete
+  digitalWrite(PIN_BUTTON_LED, HIGH);
 
   // Task setup
   mutex_display = xSemaphoreCreateMutex();
@@ -292,8 +304,8 @@ void task_display_audio_code(void *parameter) {
     //   change_mode = 0;
     //   xQueueReset(q_change_mode);
     // }
+    xSemaphoreTake(mutex_display, portMAX_DELAY); // wait to take the semaphore here - this way we check the mode after we have acquired the semaphore
     if (curr_mode == MODE_AUDIO) {
-      xSemaphoreTake(mutex_display, portMAX_DELAY);
       move_servo();
       // FastLED.setBrightness(MAX_BRIGHT);
       // EVERY_N_MILLIS(int(1000.0 / FPS)) {
@@ -301,8 +313,8 @@ void task_display_audio_code(void *parameter) {
       nblendPaletteTowardPalette(curr_palette, target_palette, PALETTE_CHANGE_RATE);
       FastLED.show();
       // }
-      xSemaphoreGive(mutex_display);
     }
+    xSemaphoreGive(mutex_display);
     //vTaskDelay((1000 / FPS) / portTICK_RATE_MS);
     vTaskDelay(1); // TODO: check this
   }
@@ -378,8 +390,8 @@ void task_display_art_code(void *parameter) {
     // } else {
     //   servo_pos = 30;
     //   move_servo();
+    xSemaphoreTake(mutex_display, portMAX_DELAY); // wait until other threads are done acting on the display, take the mutex here, _before_ we check the mode
     if (curr_mode == MODE_ART) {  // only run when mode is active
-      xSemaphoreTake(mutex_display, portMAX_DELAY); // wait until other threads are done acting on the display
       q_return = xQueueReceive(q_sp_data, &sp_data, 0);
 
       // if we actually have new data from the queue
@@ -429,8 +441,8 @@ void task_display_art_code(void *parameter) {
       //FastLED.setBrightness(int(MAX_BRIGHT * 0.75));
       FastLED.show();
       move_servo();
-      xSemaphoreGive(mutex_display);  // release the display mutex
     }
+    xSemaphoreGive(mutex_display);  // release the display mutex
     // Serial.println(uxTaskGetStackHighWaterMark(NULL));
     vTaskDelay(10 / portTICK_RATE_MS);
   }
@@ -443,28 +455,39 @@ void task_buttons_code(void *parameter) {
 
   uint8_t change_mode = 1;
   for (;;) {
-    if (button_up.read_button() == LOW) {
-      servo_pos += 1;
-      move_servo();
+    if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
+      xSemaphoreTake(mutex_display, portMAX_DELAY); // wait until other threads are done acting on the display
+      FastLED.clear(true);
+      vTaskDelay(100 / portTICK_RATE_MS);  // wait for display to clear
+      Serial.println("Switch is high, going to sleep");
+      esp_deep_sleep_start();
     }
-    if (button_down.read_button() == LOW) {
-      servo_pos -= 1;
-      move_servo();
-    }
+
+    // if (button_up.read_button() == LOW) {
+    //   servo_pos += 1;
+    //   move_servo();
+    // }
+    // if (button_down.read_button() == LOW) {
+    //   servo_pos -= 1;
+    //   move_servo();
+    // }
     if (button_mode.read_button() == LOW) {
       Serial.println("Mode change");
       //xQueueSend(q_change_mode, &change_mode, 0);
+
+      xSemaphoreTake(mutex_display, portMAX_DELAY);
       FastLED.clear(true); // clear before mode change in case task switches
+      vTaskDelay(100 / portTICK_RATE_MS);  // delay to ensure the display fully clears
 
       curr_mode = (curr_mode + 1) % 2;
 
       if (curr_mode == MODE_AUDIO) {
         audio_display_idx = (audio_display_idx + 1) % 2;
-        servo_pos = 115;
+        servo_pos = 60;
       }
-      if (curr_mode == MODE_ART) servo_pos = 70;
+      if (curr_mode == MODE_ART) servo_pos = 120;
       Serial.println("curr_mode = " + String(curr_mode));
-
+      xSemaphoreGive(mutex_display);
     }
     //Serial.println(uxTaskGetStackHighWaterMark(NULL));
     vTaskDelay(SERVO_BUTTON_HOLD_DELAY_MS / portTICK_RATE_MS); // added to avoid starving other tasks
@@ -557,10 +580,10 @@ void set_leds_noise(AudioProcessor *ap) {
 
     switch (change_type) {              // either change the scale or scan in XY
       case 0:
-        target_scale = constrain(scale + random8(30, 40), 10, 50);
+        target_scale = constrain(scale + random8(30, 40), 20, 50);
         break;
       case 1:
-        target_scale = constrain(scale - random8(30, 40), 10, 50);
+        target_scale = constrain(scale - random8(30, 40), 20, 50);
         break;
       case 2:
         target_x = constrain(x + 16 * (random8(3, 7)) * scale / 10, 0, 65535);  // scale by "scale" so that the moves look similar
@@ -727,9 +750,22 @@ void display_led_demo(SpotifyPlayerData_t *sp_data) {
 void move_servo() {
   if (servo_pos > SERVO_START_POS) servo_pos = SERVO_START_POS;
   if (servo_pos < SERVO_END_POS) servo_pos = SERVO_END_POS;
-  if (myservo.read() != servo_pos) {    // only try to move if we are going to a new position
+  int curr_pos = myservo.read();
+  if (curr_pos != servo_pos) {    // only try to move if we are going to a new position
+    if (curr_pos < servo_pos) {
+      for (int i = curr_pos; i <= servo_pos; i++) {
+        myservo.write(i);
+        vTaskDelay(20 / portTICK_RATE_MS);
+      }
+    } else {
+      for (int i = curr_pos; i >= servo_pos; i--) {
+        myservo.write(i);
+        vTaskDelay(20 / portTICK_RATE_MS);
+      }
+    }
+
     Serial.println("Servo pos: " + String(servo_pos));
-    myservo.write(servo_pos);
+    //myservo.write(servo_pos);
   }
 }
 

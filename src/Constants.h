@@ -5,12 +5,14 @@
 #define PIN_LED_CONTROL     12              // LED strip control GPIO
 #define PIN_LED_STATUS      2               // Status LED on HiLetgo board
 #define PIN_BUTTON_MODE     14
-#define PIN_BUTTON_UP       26
-#define PIN_BUTTON_DOWN     27
+// #define PIN_BUTTON_UP       26
+// #define PIN_BUTTON_DOWN     27
 #define PIN_I2S_BCK         5
 #define PIN_I2S_DIN         17
 #define PIN_I2S_WS          16
 #define PIN_SERVO           18
+#define PIN_BUTTON_LED      27
+#define PIN_POWER_SWITCH    GPIO_NUM_13
 
 #define MAX_BRIGHT          100              // sets max brightness for LEDs
 #define JPG_GAMMA           2.2

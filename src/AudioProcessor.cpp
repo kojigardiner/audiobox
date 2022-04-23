@@ -375,7 +375,7 @@ void AudioProcessor::_detect_beat() {
 
   //double _thresh_bass = (-15 * _var_bass + 1.55) * _avg_bass;
   //double _thresh_bass = (bass_max - _avg_bass) * 0.5 + _avg_bass;
-  double _thresh_bass = _avg_bass + 1.5 * sqrt(_var_bass);
+  double _thresh_bass = _avg_bass + 3 * sqrt(_var_bass);
 
   // must be loud enough, over thresh, and not too soon after the latest beat
   if (curr_bass > _thresh_bass && (20*log10(curr_volume)) > VOL_THRESH_DB && (millis() - _last_beat_ms) > 200) {

@@ -4,6 +4,8 @@
 const char* WIFI_HOSTNAME = "ESP32 LED 16x16";
 const char* WIFI_SSID = "***REMOVED***";
 const char* WIFI_PASS = "***REMOVED***";
+// const char* WIFI_SSID = "***REMOVED***";
+// const char* WIFI_PASS = "***REMOVED***";
 
 // Spotify Globals
 const String SPOTIFY_CLIENT_ID = "***REMOVED***";
