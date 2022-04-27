@@ -1,5 +1,5 @@
-#include <Timer.h>
 #include <Arduino.h>
+#include <Timer.h>
 
 Timer::Timer(uint32_t timeout_ms) {
     _timeout_ms = timeout_ms;

@@ -1,11 +1,12 @@
 #include "MeanCut.h"
+
 #include "ArduinoSort.h"
 
 // Takes an rgb565 value and and a pointer to an array of 3 uint8_t values in which to store the rgb888 equivalent
 void rgb565_to_rgb888(uint16_t rgb565_val, uint8_t *rgb888_arr) {
     uint8_t r5 = (rgb565_val >> 11) & 0x1F;
     uint8_t g6 = (rgb565_val >> 5) & 0x3F;
-    uint8_t b5 = (rgb565_val) & 0x1F;
+    uint8_t b5 = (rgb565_val)&0x1F;
 
     rgb888_arr[0] = int(round((float(r5) / 31) * 255));
     rgb888_arr[1] = int(round((float(g6) / 63) * 255));
@@ -14,17 +15,17 @@ void rgb565_to_rgb888(uint16_t rgb565_val, uint8_t *rgb888_arr) {
 
 int get_longest_dim(uint16_t *rgb565_arr, uint32_t length) {
     uint8_t rgb888_arr[3];
-    uint8_t rgb_max_arr[3] = { 0, 0, 0 };
-    uint8_t rgb_min_arr[3] = { 255, 255, 255 };
+    uint8_t rgb_max_arr[3] = {0, 0, 0};
+    uint8_t rgb_min_arr[3] = {255, 255, 255};
     uint8_t rgb_ranges[3];
 
     // loop through all pixels
     for (int i = 0; i < length; i++) {
-        rgb565_to_rgb888(rgb565_arr[i], rgb888_arr);    // decode current pixel into rgb888_arr
+        rgb565_to_rgb888(rgb565_arr[i], rgb888_arr);  // decode current pixel into rgb888_arr
         // Serial.println("r " + String(rgb888_arr[0]));
         // Serial.println("g " + String(rgb888_arr[1]));
         // Serial.println("b " + String(rgb888_arr[2]));
-        
+
         // loop through rgb components
         for (int c = 0; c < 3; c++) {
             if (rgb888_arr[c] > rgb_max_arr[c]) {
@@ -50,52 +51,52 @@ int get_longest_dim(uint16_t *rgb565_arr, uint32_t length) {
         return 2;
     }
 
-    return -1; // should never get here
+    return -1;  // should never get here
 }
 
 bool red_is_larger(uint16_t first, uint16_t second) {
-  uint8_t rgb888_first_arr[3];
-  uint8_t rgb888_second_arr[3];
+    uint8_t rgb888_first_arr[3];
+    uint8_t rgb888_second_arr[3];
 
-  // Convert to rgb888
-  rgb565_to_rgb888(first, rgb888_first_arr);
-  rgb565_to_rgb888(second, rgb888_second_arr);
-  
-  if (rgb888_first_arr[0] > rgb888_second_arr[0]) {
-    return true;
-  } else {
-    return false;
-  }
+    // Convert to rgb888
+    rgb565_to_rgb888(first, rgb888_first_arr);
+    rgb565_to_rgb888(second, rgb888_second_arr);
+
+    if (rgb888_first_arr[0] > rgb888_second_arr[0]) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
 bool green_is_larger(uint16_t first, uint16_t second) {
-  uint8_t rgb888_first_arr[3];
-  uint8_t rgb888_second_arr[3];
+    uint8_t rgb888_first_arr[3];
+    uint8_t rgb888_second_arr[3];
 
-  // Convert to rgb888
-  rgb565_to_rgb888(first, rgb888_first_arr);
-  rgb565_to_rgb888(second, rgb888_second_arr);
-  
-  if (rgb888_first_arr[1] > rgb888_second_arr[1]) {
-    return true;
-  } else {
-    return false;
-  }
+    // Convert to rgb888
+    rgb565_to_rgb888(first, rgb888_first_arr);
+    rgb565_to_rgb888(second, rgb888_second_arr);
+
+    if (rgb888_first_arr[1] > rgb888_second_arr[1]) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
 bool blue_is_larger(uint16_t first, uint16_t second) {
-  uint8_t rgb888_first_arr[3];
-  uint8_t rgb888_second_arr[3];
+    uint8_t rgb888_first_arr[3];
+    uint8_t rgb888_second_arr[3];
 
-  // Convert to rgb888
-  rgb565_to_rgb888(first, rgb888_first_arr);
-  rgb565_to_rgb888(second, rgb888_second_arr);
-  
-  if (rgb888_first_arr[2] > rgb888_second_arr[2]) {
-    return true;
-  } else {
-    return false;
-  }
+    // Convert to rgb888
+    rgb565_to_rgb888(first, rgb888_first_arr);
+    rgb565_to_rgb888(second, rgb888_second_arr);
+
+    if (rgb888_first_arr[2] > rgb888_second_arr[2]) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
 // Using Rec.709 Y conversion
@@ -104,25 +105,25 @@ uint8_t rgb888_to_luma(uint8_t *rgb888_arr) {
 }
 
 bool luma_is_smaller(uint16_t first, uint16_t second) {
-  uint8_t rgb888_first_arr[3];
-  uint8_t rgb888_second_arr[3];
+    uint8_t rgb888_first_arr[3];
+    uint8_t rgb888_second_arr[3];
 
-  // Convert to rgb888
-  rgb565_to_rgb888(first, rgb888_first_arr);
-  rgb565_to_rgb888(second, rgb888_second_arr);
+    // Convert to rgb888
+    rgb565_to_rgb888(first, rgb888_first_arr);
+    rgb565_to_rgb888(second, rgb888_second_arr);
 
-  uint8_t luma_first = rgb888_to_luma(rgb888_first_arr);
-  uint8_t luma_second = rgb888_to_luma(rgb888_second_arr);
+    uint8_t luma_first = rgb888_to_luma(rgb888_first_arr);
+    uint8_t luma_second = rgb888_to_luma(rgb888_second_arr);
 
-  if (luma_first < luma_second) {
-    return true;
-  } else {
-    return false;
-  }
+    if (luma_first < luma_second) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
 uint32_t length_above_luma_thresh(uint16_t *rgb565_arr, uint32_t length, uint8_t threshold) {
-    sortArray(rgb565_arr, length, luma_is_smaller); // sort by descending luma
+    sortArray(rgb565_arr, length, luma_is_smaller);  // sort by descending luma
     uint32_t idx;
     uint8_t rgb888_arr[3];
     uint8_t luma;
@@ -156,7 +157,7 @@ void get_mean_color(uint16_t *rgb565_arr, uint32_t length, uint8_t *mean_rgb888_
         return;
     }
 
-    uint32_t sum_rgb888_arr[3] = { 0, 0, 0 };
+    uint32_t sum_rgb888_arr[3] = {0, 0, 0};
     uint8_t curr_rgb888_arr[3];
 
     // loop through all pixels
@@ -216,7 +217,7 @@ void mean_cut(uint16_t *rgb565_arr, uint32_t length, uint8_t depth, uint8_t *res
 
 // Recursive function that actually computes the results
 void mean_cut_recursive(uint16_t *rgb565_arr, uint32_t length, uint8_t depth, uint8_t *results) {
-    if ((depth == 0) || (length == 0)) {    // if length is 0 we will get black
+    if ((depth == 0) || (length == 0)) {  // if length is 0 we will get black
         // uint8_t mean_rgb888_arr[3];
         get_mean_color(rgb565_arr, length, results);
         // Serial.println("Length: " + String(length) + ", Result:" + String(results[0]) + "," + String(results[1]) + "," + String(results[2]));
@@ -235,7 +236,7 @@ void mean_cut_recursive(uint16_t *rgb565_arr, uint32_t length, uint8_t depth, ui
 
     uint8_t longest_dim = get_longest_dim(rgb565_arr, length);
     // Serial.println("longest_dim = " + String(longest_dim));
-    
+
     sort_by_channel(rgb565_arr, length, longest_dim);
     uint32_t split_idx = get_mean_idx(rgb565_arr, length, longest_dim);
 
@@ -246,18 +247,18 @@ void mean_cut_recursive(uint16_t *rgb565_arr, uint32_t length, uint8_t depth, ui
     // }
 
     // Determine lengths of each half of the array we are splitting into
-    uint32_t length0 = split_idx; //int(length / 2);
-    uint32_t length1 = length - split_idx; //length - length0;
+    uint32_t length0 = split_idx;           // int(length / 2);
+    uint32_t length1 = length - split_idx;  // length - length0;
 
-    //Serial.println("length0="+String(length0)+",length1="+String(length1));
+    // Serial.println("length0="+String(length0)+",length1="+String(length1));
 
     // Copy the contents of our original array into the new split arrays
     uint16_t rgb565_arr_0[length0];
     memcpy(rgb565_arr_0, rgb565_arr, sizeof(rgb565_arr_0));
-    
+
     uint16_t rgb565_arr_1[length1];
     memcpy(rgb565_arr_1, rgb565_arr + length0, sizeof(rgb565_arr_1));
-    
+
     // for (int i = 0; i < length0; i++) {
     //     rgb565_to_rgb888(rgb565_arr_0[i], rgb888_arr);
     //     Serial.print(rgb888_arr[0]); Serial.print("\t"); Serial.print(rgb888_arr[1]); Serial.print("\t"); Serial.print(rgb888_arr[2]); Serial.print("\n");
@@ -276,62 +277,3 @@ void mean_cut_recursive(uint16_t *rgb565_arr, uint32_t length, uint8_t depth, ui
     uint8_t *results1_ptr = results + ((1 << (depth - 1)) * 3 * sizeof(results[0]));
     mean_cut(rgb565_arr_1, length1, depth - 1, results1_ptr);
 }
-
-/***
-
-1. Normalize 0 to 1
-2. RGB to LAB
-3. LAB to LCH
-4. Filter out colors by luma and chroma thresh
-5. Check that size is not 0
-6. LCH to LAB
-7. Mean cut
-8. 
-
- 
-# read image, convert to LAB, then LCH
-img = cv2.imread(filepath)
-img_lab = cv2.cvtColor(np.float32(img)/255,cv2.COLOR_BGR2LAB)
-img_lch = lab2lch(img_lab)
-
-# filter out dark colors and whites/blacks/grays
-luma_thresh = 10
-chroma_thresh = 20
-chroma_add = 50
-img_lch = np.expand_dims(img_lch[img_lch[:,:,0]>luma_thresh],0)  # remove dark colors
-img_lch = np.expand_dims(img_lch[img_lch[:,:,1]>chroma_thresh],0)  # remove low chroma colors
-
-if img_lch.size == 0:        # if the above filtered out all colors, return an empty palette (default)
-    return np.array([],dtype=np.uint8)
-
-# back to LCH
-img_lab = lch2lab(img_lch)
-
-# reshape into a single list of LAB pixels
-Z_lab = img_lab.reshape((-1,3))
-Z_lab = np.float32(Z_lab)
-
-# run k-means clustering
-K_clusters = 3
-criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
-ret_lab,label_lab,center_lab=cv2.kmeans(Z_lab,K_clusters,None,criteria,10,cv2.KMEANS_PP_CENTERS)
-
-# sort colors
-colors_lab = cv2.cvtColor(np.array([center_lab]),cv2.COLOR_LAB2RGB)
-numLabels = np.arange(0, len(np.unique(label_lab)) + 1)
-(hist, _) = np.histogram(label_lab, bins = numLabels)
-hist = hist.astype("float")
-hist /= hist.sum()
-a = np.argsort(hist)
-a = a[::-1]
-lab_sorted = colors_lab[:,a,:]
-
-# convert to LCH and increase chroma
-lch_lab = lab2lch(cv2.cvtColor(lab_sorted,cv2.COLOR_RGB2LAB))
-lch_lab[:,:,1] = lch_lab[:,:,1]+chroma_add # increase chroma
-lab_sweet = cv2.cvtColor(lch2lab(lch_lab),cv2.COLOR_LAB2RGB)
-
-palette = np.uint8(lab_sweet*255)
-palette[0] = apply_gamma(palette[0])
-print(palette)
-***/

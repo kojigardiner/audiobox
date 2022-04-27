@@ -1,5 +1,8 @@
 {
     "files.associations": {
         "string_view": "cpp"
+    },
+    "workbench.colorCustomizations": {
+        "titleBar.activeBackground": "#de7722"
     }
 }
