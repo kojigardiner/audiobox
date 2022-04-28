@@ -8,7 +8,7 @@
 #include <WiFi.h>
 
 #include "AudioProcessor.h"
-#include "Button.h"
+#include "ButtonFSM.h"
 #include "Constants.h"
 #include "MeanCut.h"
 #include "NetworkConstants.h"
@@ -130,16 +130,11 @@ DEFINE_GRADIENT_PALETTE(Sunset_Real_gp){
 
 // Servo Globals
 Servo myservo;
-int servo_pos = SERVO_START_POS;
-
-// Spotify Globals
-bool token_expired = true;
-String token = "";
+int servo_pos = SERVO_BLUR_POS;
 
 // Button Globals
 // Button button_up = Button(PIN_BUTTON_UP);
 // Button button_down = Button(PIN_BUTTON_DOWN);
-Button button_mode = Button(PIN_BUTTON_MODE);
 
 void setup() {
     pinMode(PIN_LED_STATUS, OUTPUT);
@@ -172,7 +167,8 @@ void setup() {
     Serial.print("Setting up servo\n");
     myservo.write(servo_pos);  // Set servo zero position prior to attaching in order to mitigate power-on glitch
     myservo.attach(PIN_SERVO, SERVO_MIN_US, SERVO_MAX_US);
-    servo_pos = myservo.read();  // Determine where the servo is
+    // servo_pos = myservo.read();  // Determine where the servo is -- Note: this will always report 82, regardless of where servo actually is.
+    // we will instead always park the servo at the same position prior to sleeping
 
     // WiFi Setup
     Serial.print("Setting up wifi");
@@ -328,29 +324,15 @@ void task_spotify_code(void *parameter) {
 
     for (;;) {
         if ((WiFi.status() == WL_CONNECTED)) {
-            // if (token_expired) {
-            //     get_spotify_token();
-            // }
-            // get_spotify_player(&sp_data);
-            // if (sp_data.track_changed) {
-            //     get_and_update_spotify_features(&sp_data);
-            //     print_spotify_data(&sp_data);
-
-            //     speed = int(round(2 * sp_data.tempo / FPS));
-            //     if (sp_data.energy >= 0.75) speed *= 2;
-            //     if (speed < 1) speed = 1;
-            //     Serial.println("\tSpeed: " + String(speed));
-            // }
             sp.update();
             if (sp.art_changed) {
                 decode_art(&sp);
             }
-
             xQueueSend(q_sp, &sp, 0);  // set timeout to zero so loop will continue until display is updated
         } else {
             Serial.println("Error: WiFi not connected! status = " + String(WiFi.status()));
         }
-        vTaskDelay(1000 / portTICK_RATE_MS);  // Run once a second
+        vTaskDelay(SPOTIFY_CYCLE_TIME_MS / portTICK_RATE_MS);
     }
     vTaskDelete(NULL);
 }
@@ -389,27 +371,6 @@ void task_display_art_code(void *parameter) {
         if (curr_mode == MODE_ART) {                   // only run when mode is active
             q_return = xQueueReceive(q_sp, &sp, 0);
 
-            // if we actually have new data from the queue
-            // if (q_return == pdTRUE && sp_data.track_id != curr_track_id && sp_data.is_art_loaded) {
-            //   Serial.println("Track changed");
-            //   curr_track_id = sp_data.track_id;
-            //   Serial.println("Decoding art, " + String(sp_data.art_num_bytes) + " bytes");
-            //   TJpgDec.drawJpg(0, 0, sp_data.art_data, sp_data.art_num_bytes); // decode and copy jpg data into full_art
-
-            //   mean_cut((uint16_t *)palette_art, 16*16, MEAN_CUT_DEPTH, (uint8_t *)palette_results);
-            //   Serial.println("Finished mean cut, printing returned results");
-            //   for (int i=0; i < PALETTE_ENTRIES; i++) {
-            //     Serial.println(String(palette_results[i][0]) + "," + String(palette_results[i][1]) + "," + String(palette_results[i][2]));
-            //     uint8_t r8 = round(pow(float(palette_results[i][0]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
-            //     uint8_t g8 = round(pow(float(palette_results[i][1]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
-            //     uint8_t b8 = round(pow(float(palette_results[i][2]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
-            //     palette_crgb[i] = CRGB(r8, g8, b8);
-            //   }
-            //   curr_palette = CRGBPalette16(palette_crgb[0], palette_crgb[1], palette_crgb[2], palette_crgb[3],
-            //                                palette_crgb[4], palette_crgb[5], palette_crgb[6], palette_crgb[7],
-            //                                palette_crgb[8], palette_crgb[9], palette_crgb[10], palette_crgb[11],
-            //                                palette_crgb[12], palette_crgb[13], palette_crgb[14], palette_crgb[15]);
-            // }
             if (q_return == pdTRUE && sp.is_active == true) {
                 percent_complete = double(sp.progress_ms) / sp.duration_ms * 100;
                 // Serial.println("Playing..." + String(percent_complete) + "%");
@@ -449,8 +410,16 @@ void task_buttons_code(void *parameter) {
     Serial.println(xPortGetCoreID());
 
     uint8_t change_mode = 1;
+
+    ButtonFSM button_fsm = ButtonFSM(PIN_BUTTON_MODE);
+
     for (;;) {
+        button_fsm.advance();
+
         if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
+            servo_pos = SERVO_BLUR_POS;
+            move_servo();  // set servo to known position before going to sleep
+
             xSemaphoreTake(mutex_display, portMAX_DELAY);  // wait until other threads are done acting on the display
             FastLED.clear(true);
             vTaskDelay(100 / portTICK_RATE_MS);  // wait for display to clear
@@ -458,15 +427,15 @@ void task_buttons_code(void *parameter) {
             esp_deep_sleep_start();
         }
 
-        // if (button_up.read_button() == LOW) {
-        //   servo_pos += 1;
-        //   move_servo();
-        // }
-        // if (button_down.read_button() == LOW) {
-        //   servo_pos -= 1;
-        //   move_servo();
-        // }
-        if (button_mode.read_button() == LOW) {
+        if (Serial.available() && Serial.read() == 'f') {
+            servo_pos += 1;
+            move_servo();
+        }
+        if (Serial.available() && Serial.read() == 'b') {
+            servo_pos -= 1;
+            move_servo();
+        }
+        if (button_fsm.get_state() == HOLD_TRIGGERED) {
             Serial.println("Mode change");
             // xQueueSend(q_change_mode, &change_mode, 0);
 
@@ -478,14 +447,22 @@ void task_buttons_code(void *parameter) {
 
             if (curr_mode == MODE_AUDIO) {
                 audio_display_idx = (audio_display_idx + 1) % 2;
-                servo_pos = 60;
+                servo_pos = SERVO_BLUR_POS;
             }
-            if (curr_mode == MODE_ART) servo_pos = 120;
+            if (curr_mode == MODE_ART) servo_pos = SERVO_ART_POS;
             Serial.println("curr_mode = " + String(curr_mode));
             xSemaphoreGive(mutex_display);
         }
+        if (button_fsm.get_state() == MOMENTARY_TRIGGERED) {
+            if (servo_pos == SERVO_BLUR_POS) {
+                servo_pos = SERVO_ART_POS;
+            } else {
+                servo_pos = SERVO_BLUR_POS;
+            }
+            move_servo();
+        }
         // Serial.println(uxTaskGetStackHighWaterMark(NULL));
-        vTaskDelay(SERVO_BUTTON_HOLD_DELAY_MS / portTICK_RATE_MS);  // added to avoid starving other tasks
+        vTaskDelay(BUTTON_FSM_CYCLE_TIME_MS / portTICK_RATE_MS);  // added to avoid starving other tasks
     }
     vTaskDelete(NULL);
 }
@@ -742,10 +719,11 @@ void set_leds_scrolling(AudioProcessor *ap) {
 // }
 
 void move_servo() {
-    if (servo_pos > SERVO_START_POS) servo_pos = SERVO_START_POS;
-    if (servo_pos < SERVO_END_POS) servo_pos = SERVO_END_POS;
+    if (servo_pos > SERVO_MAX_POS) servo_pos = SERVO_MAX_POS;
+    if (servo_pos < SERVO_MIN_POS) servo_pos = SERVO_MIN_POS;
     int curr_pos = myservo.read();
     if (curr_pos != servo_pos) {  // only try to move if we are going to a new position
+        Serial.println("Servo starting pos: " + String(curr_pos));
         if (curr_pos < servo_pos) {
             for (int i = curr_pos; i <= servo_pos; i++) {
                 myservo.write(i);
@@ -758,7 +736,7 @@ void move_servo() {
             }
         }
 
-        Serial.println("Servo pos: " + String(servo_pos));
+        Serial.println("Servo ending pos: " + String(servo_pos));
         // myservo.write(servo_pos);
     }
 }

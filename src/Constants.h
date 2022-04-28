@@ -30,6 +30,7 @@
 #define I2S_MIC_BIT_DEPTH 18   // SPH0645 bit depth, per datasheet (18-bit 2's complement in 24-bit container)
 #define FFT_SAMPLES 1024
 #define FFTS_PER_SEC int(double(I2S_SAMPLE_RATE) / FFT_SAMPLES)  // number of FFTs computed each sec
+#define SPOTIFY_CYCLE_TIME_MS 1000                               // how often to run the spotify update
 
 // Specific to audio volume control
 #define VOL_FACTOR 10                        // empirically found that RMS of signal needs x10 to match RMS of FFT
@@ -59,8 +60,12 @@
 // Servo defines
 #define SERVO_MIN_US 700
 #define SERVO_MAX_US 2400
-#define SERVO_START_POS 130
-#define SERVO_END_POS 0
+#define SERVO_MAX_POS 160
+#define SERVO_MIN_POS 30
+
+#define SERVO_BLUR_POS 50
+#define SERVO_ART_POS 110
+
 #define SERVO_BUTTON_HOLD_DELAY_MS 50
 
 // Macros
