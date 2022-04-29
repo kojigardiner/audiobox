@@ -11,6 +11,7 @@
 #include "ButtonFSM.h"
 #include "Constants.h"
 #include "MeanCut.h"
+#include "Mode.h"
 #include "NetworkConstants.h"
 #include "Spotify.h"
 #include "Timer.h"
@@ -33,11 +34,8 @@ void wu_pixel(uint16_t x, uint16_t y, CRGB *col);
 bool display_image(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap);  // callback function for JPG decoder
 bool copy_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap);  // callback function for JPG decoder
 int grid_to_idx(int x, int y, bool start_top_left);
-void display_full_art(uint8_t idx);
+void display_full_art(uint8_t skip);
 void decode_art(Spotify *sp);
-
-// Servo Functions
-void move_servo();
 
 // Audio Functions
 void run_audio(AudioProcessor *ap);
@@ -46,26 +44,41 @@ void set_leds_scrolling(AudioProcessor *ap);
 void set_leds_bars(AudioProcessor *ap);
 void set_leds_noise(AudioProcessor *ap);
 void (*audio_display_func[])(AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_noise};  //, set_leds_bars}; //, set_leds_scrolling};
-// void (*audio_display_func[]) (AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_scrolling};
+                                                                                             // void (*audio_display_func[]) (AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_scrolling};
 
 /*** Globals ***/
 
+struct Modes {
+    Mode display;
+    Mode art;
+    Mode audio;
+};
+
 // Task & Queue Handles
-TaskHandle_t task_spotify;
-TaskHandle_t task_display_art;
 TaskHandle_t task_buttons;
-TaskHandle_t task_display_audio;
-QueueHandle_t q_sp;
-QueueHandle_t q_change_mode;
-SemaphoreHandle_t mutex_display;
-enum Modes { MODE_AUDIO,
-             MODE_ART };
-uint8_t curr_mode = MODE_ART;
+TaskHandle_t task_spotify;
+TaskHandle_t task_audio;
+TaskHandle_t task_display;
+TaskHandle_t task_servo;
+TaskHandle_t task_setup;
+
+// Queues to serve data to the display task
+QueueHandle_t q_spotify;
+QueueHandle_t q_button_to_display;
+QueueHandle_t q_button_to_audio;
+QueueHandle_t q_servo;
+QueueHandle_t q_mode;
+QueueHandle_t q_audio_done;
+
+// Semaphores
+SemaphoreHandle_t mutex_leds;
 
 void task_spotify_code(void *parameter);
-void task_display_art_code(void *parameter);
+void task_audio_code(void *parameter);
 void task_buttons_code(void *parameter);
-void task_display_audio_code(void *parameter);
+void task_display_code(void *parameter);
+void task_servo_code(void *parameter);
+void task_setup_code(void *parameter);
 
 // LED Globals
 CRGB leds[NUM_LEDS];                    // array that will hold LED values
@@ -108,8 +121,8 @@ uint16_t speed = 1;  // speed is set dynamically once we've started up
 // changing these values around to see how it affects the motion of the display.  The
 // higher the value of scale, the more "zoomed out" the noise iwll be.  A value
 // of 1 will be so zoomed in, you'll mostly see solid colors.
-uint16_t scale = 15;         // scale is set dynamically once we've started up
-uint16_t target_scale = 15;  // scale is set dynamically once we've started up
+uint16_t scale = 40;         // scale is set dynamically once we've started up
+uint16_t target_scale = 40;  // scale is set dynamically once we've started up
 
 // This is the array that we keep our computed noise values in
 uint8_t noise[GRID_H][GRID_W];
@@ -130,7 +143,6 @@ DEFINE_GRADIENT_PALETTE(Sunset_Real_gp){
 
 // Servo Globals
 Servo myservo;
-int servo_pos = SERVO_BLUR_POS;
 
 // Button Globals
 // Button button_up = Button(PIN_BUTTON_UP);
@@ -142,7 +154,7 @@ void setup() {
     pinMode(PIN_POWER_SWITCH, INPUT_PULLUP);
 
     // Turn on status LED to indicate program has loaded
-    digitalWrite(PIN_LED_STATUS, HIGH);
+    // digitalWrite(PIN_LED_STATUS, HIGH);
 
     Serial.begin(115200);  // debug serial terminal
 
@@ -153,38 +165,14 @@ void setup() {
     }
 
     Serial.print("Initial safety delay\n");
-    delay(3000);  // power-up safety delay for LEDs
-
-    // LED Setup
-    Serial.print("Setting up LEDs\n");
-    FastLED.addLeds<WS2812, PIN_LED_CONTROL, GRB>(leds, NUM_LEDS);
-    FastLED.setBrightness(MAX_BRIGHT);
-    FastLED.clear();
-    FastLED.show();
-    curr_palette = Sunset_Real_gp;
+    delay(500);  // power-up safety delay to avoid brown out
 
     // Servo Setup
     Serial.print("Setting up servo\n");
-    myservo.write(servo_pos);  // Set servo zero position prior to attaching in order to mitigate power-on glitch
+    myservo.write(SERVO_BLUR_POS);  // Set servo zero position prior to attaching in order to mitigate power-on glitch
     myservo.attach(PIN_SERVO, SERVO_MIN_US, SERVO_MAX_US);
     // servo_pos = myservo.read();  // Determine where the servo is -- Note: this will always report 82, regardless of where servo actually is.
     // we will instead always park the servo at the same position prior to sleeping
-
-    // WiFi Setup
-    Serial.print("Setting up wifi");
-    WiFi.mode(WIFI_STA);
-    WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
-    WiFi.setHostname(WIFI_HOSTNAME);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-    while (WiFi.status() != WL_CONNECTED) {
-        Serial.print(".");
-        delay(500);
-    }
-    Serial.print("connected\n");
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
-    Serial.print("RSSI: ");
-    Serial.println(WiFi.RSSI());
 
     // JPG decoder setup
     Serial.print("Setting up JPG decoder\n");
@@ -199,6 +187,34 @@ void setup() {
         return;
     }
 
+    // WiFi Setup
+    Serial.print("Setting up wifi");
+    WiFi.mode(WIFI_STA);
+    WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
+    WiFi.setHostname(WIFI_HOSTNAME);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+    bool led_state = HIGH;
+    while (WiFi.status() != WL_CONNECTED) {
+        digitalWrite(PIN_BUTTON_LED, led_state);  // blink the LED
+        led_state = !led_state;
+        Serial.print(".");
+        delay(500);
+    }
+    Serial.print("connected\n");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+    Serial.print("RSSI: ");
+    Serial.println(WiFi.RSSI());
+
+    // LED Setup
+    Serial.print("Setting up LEDs\n");
+    FastLED.addLeds<WS2812, PIN_LED_CONTROL, GRB>(leds, NUM_LEDS);
+    FastLED.setBrightness(MAX_BRIGHT);
+    FastLED.clear();
+    FastLED.show();
+    curr_palette = Sunset_Real_gp;
+
     // Initialize our coordinates to some random values
     x = random16();
     y = random16();
@@ -210,100 +226,279 @@ void setup() {
     digitalWrite(PIN_BUTTON_LED, HIGH);
 
     // Task setup
-    mutex_display = xSemaphoreCreateMutex();
+    mutex_leds = xSemaphoreCreateMutex();
 
-    xTaskCreate(
+    q_spotify = xQueueCreate(1, sizeof(Spotify));
+    q_button_to_display = xQueueCreate(10, sizeof(ButtonFSMState));
+    q_button_to_audio = xQueueCreate(10, sizeof(ButtonFSMState));
+    q_servo = xQueueCreate(10, sizeof(int));
+    q_mode = xQueueCreate(1, sizeof(Modes));
+    q_audio_done = xQueueCreate(1, sizeof(uint8_t));
+
+    disableCore0WDT();  // hack to avoid various kernel panics
+
+    xTaskCreatePinnedToCore(
         task_spotify_code,  // Function to implement the task
         "task_spotify",     // Name of the task
         10000,              // Stack size in words
         NULL,               // Task input parameter
         1,                  // Priority of the task (don't use 0!)
-        &task_spotify       // Task handle
+        &task_spotify,      // Task handle
+        0                   // Pinned core - 0 is the same core as WiFi
     );
 
-    xTaskCreate(
+    xTaskCreatePinnedToCore(
+        task_display_code,  // Function to implement the task
+        "task_display",     // Name of the task
+        10000,              // Stack size in words
+        NULL,               // Task input parameter
+        1,                  // Priority of the task (don't use 0!)
+        &task_display,      // Task handle
+        1                   // Pinned core, 1 is preferred to avoid glitches (see: https://www.reddit.com/r/FastLED/comments/rfl6rz/esp32_wifi_on_core_1_fastled_on_core_0/)
+    );
+
+    xTaskCreatePinnedToCore(
         task_buttons_code,  // Function to implement the task
         "task_buttons",     // Name of the task
         10000,              // Stack size in words
         NULL,               // Task input parameter
         1,                  // Priority of the task (don't use 0!)
-        &task_buttons       // Task handle
+        &task_buttons,      // Task handle
+        1                   // Pinned core
     );
 
-    xTaskCreate(
-        task_display_audio_code,  // Function to implement the task
-        "task_display_audio",     // Name of the task
-        30000,                    // Stack size in words
-        NULL,                     // Task input parameter
-        1,                        // Priority of the task (don't use 0!)
-        &task_display_audio       // Task handle
+    xTaskCreatePinnedToCore(
+        task_audio_code,  // Function to implement the task
+        "task_audio",     // Name of the task
+        30000,            // Stack size in words
+        NULL,             // Task input parameter
+        1,                // Priority of the task (don't use 0!)
+        &task_audio,      // Task handle
+        1                 // Pinned core
     );
 
-    xTaskCreate(
-        task_display_art_code,  // Function to implement the task
-        "task_display_art",     // Name of the task
-        10000,                  // Stack size in words
-        NULL,                   // Task input parameter
-        1,                      // Priority of the task (don't use 0!)
-        &task_display_art       // Task handle
+    xTaskCreatePinnedToCore(
+        task_servo_code,  // Function to implement the task
+        "task_servo",     // Name of the task
+        2000,             // Stack size in words
+        NULL,             // Task input parameter
+        1,                // Priority of the task (don't use 0!)
+        &task_servo,      // Task handle
+        1                 // Pinned core
     );
-
-    q_sp = xQueueCreate(1, sizeof(Spotify));
-    q_change_mode = xQueueCreate(1, sizeof(uint8_t));
-
-    disableCore0WDT();
-
-    // // Splash screen
-    // File file = SPIFFS.open("/rainbows.jpg");
-    // if(!file){
-    //   Serial.println("Failed to open file for reading");
-    //   return;
-    // }
-    // file.close();
-
-    // // Write image
-    // // Get the width and height in pixels of the jpeg if you wish
-    // uint16_t w = 0, h = 0;
-    // TJpgDec.getFsJpgSize(&w, &h, "/rainbows.jpg"); // Note name preceded with "/"
-    // Serial.print("Width = "); Serial.print(w); Serial.print(", height = "); Serial.println(h);
-
-    // // Draw the image, top left at 0,0
-    // TJpgDec.drawFsJpg(0, 0, "/rainbows.jpg");
 }
 
 void loop() {
     vTaskDelete(NULL);
 }
 
-void task_display_audio_code(void *parameter) {
-    Serial.print("task_display_audio_code running on core ");
+void show_leds() {
+    xSemaphoreTake(mutex_leds, portMAX_DELAY);
+    FastLED.show();
+    xSemaphoreGive(mutex_leds);
+}
+
+void task_display_code(void *parameter) {
+    Serial.print("task_display_code running on core ");
     Serial.println(xPortGetCoreID());
 
-    AudioProcessor ap = AudioProcessor(false, false, true, true);
-    uint8_t change_mode = 0;
+    TickType_t xLastWakeTime;
+    const TickType_t xFrequency = (1000.0 / FPS) / portTICK_RATE_MS;
+
+    ButtonFSMState button_state;
+    Spotify sp;
+    BaseType_t q_return;
+    double percent_complete = 0;
+    int counter = 0;
+
+    struct Modes modes;
+    modes.display = Mode(DISPLAY_ART, DISPLAY_MODES_MAX, DISPLAY_DURATIONS);
+    modes.art = Mode(ART_WITH_ELAPSED, ART_MODES_MAX);
+    modes.audio = Mode(AUDIO_NOISE, AUDIO_MODES_MAX);
+
+    // Initialise the xLastWakeTime variable with the current time.
+    xLastWakeTime = xTaskGetTickCount();
 
     for (;;) {
-        // xQueueReceive(q_change_mode, &change_mode, 0);
-        // if (change_mode) {
-        //   audio_display_idx = (audio_display_idx + 1) % (sizeof(audio_display_func) / (sizeof(audio_display_func[0])));
-        //   Serial.println("Mode change, idx =  " + String(audio_display_idx));
+        // Check for power off
+        if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
+            int new_pos = SERVO_BLUR_POS;
+            xQueueSend(q_servo, &new_pos, 0);
 
-        //   change_mode = 0;
-        //   xQueueReset(q_change_mode);
-        // }
-        xSemaphoreTake(mutex_display, portMAX_DELAY);  // wait to take the semaphore here - this way we check the mode after we have acquired the semaphore
-        if (curr_mode == MODE_AUDIO) {
-            move_servo();
-            // FastLED.setBrightness(MAX_BRIGHT);
-            // EVERY_N_MILLIS(int(1000.0 / FPS)) {
-            run_audio(&ap);
-            nblendPaletteTowardPalette(curr_palette, target_palette, PALETTE_CHANGE_RATE);
-            FastLED.show();
-            // }
+            xSemaphoreTake(mutex_leds, portMAX_DELAY);
+            FastLED.clear(true);
+
+            vTaskDelay(((SERVO_ART_POS - SERVO_BLUR_POS) * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
+            Serial.println("Switch is high, going to sleep");
+            esp_deep_sleep_start();
         }
-        xSemaphoreGive(mutex_display);
+        // Check for button push and mode change
+        q_return = xQueueReceive(q_button_to_display, &button_state, 0);  // get a new button state if one is available
+        if (q_return == pdTRUE) {
+            switch (button_state) {
+                case MOMENTARY_TRIGGERED:  // change the sub-mode
+                    switch (modes.display.get_mode()) {
+                        case DISPLAY_ART:
+                            Serial.println("Changing art display type");
+                            modes.art.cycle_mode();
+                            break;
+                        case DISPLAY_AUDIO:
+                            Serial.println("Changing audio display type");
+                            modes.audio.cycle_mode();
+                            break;
+                    }
+                    break;
+
+                case HOLD_TRIGGERED:  // change the main mode
+                    Serial.println("Changing display mode");
+                    modes.display.cycle_mode();
+                    break;
+            }
+        }
+
+        if (modes.display.mode_elapsed()) {
+            Serial.println("Timer elapsed, cycling display mode");
+            modes.display.cycle_mode();
+        }
+
+        q_return = xQueueReceive(q_spotify, &sp, 0);  // get the spotify update if there is one
+        if (q_return == pdTRUE) {
+            if (sp.is_active) {
+                percent_complete = double(sp.progress_ms) / sp.duration_ms * 100;
+                // Serial.println("Playing..." + String(percent_complete) + "%");
+            } else {
+                modes.display.set_mode(DISPLAY_ART);  // will be blank when there's no art
+            }
+            if (sp.track_changed) {
+                modes.display.set_mode(DISPLAY_ART);  // show art on track change
+            }
+        }
+        xQueueSend(q_mode, &modes, 0);  // send the mode so the audio task knows what state we're in
+
+        // Display based on the mode
+        switch (modes.display.get_mode()) {
+            case DISPLAY_ART: {
+                // Display art and current elapsed regardless of if we have new data from the queue
+                if (sp.is_art_loaded && sp.is_active) {
+                    xSemaphoreTake(mutex_leds, portMAX_DELAY);
+
+                    display_full_art(0);
+                    counter = (counter + 1) % 16;
+                    switch (modes.art.get_mode()) {
+                        case ART_WITH_ELAPSED: {  // Update the LED indicator at the bottom of the array
+                            int grid_pos = int(round(percent_complete / 100 * GRID_W));
+
+                            for (int i = 0; i < GRID_W; i++) {
+                                if (i < grid_pos) {
+                                    leds[i] = CRGB::Red;
+                                }
+                            }
+                            break;
+                        }
+                        case ART_WITH_PALETTE:  // Update the bottom of the array with the palette
+                            for (int i = 0; i < PALETTE_ENTRIES; i++) {
+                                leds[i] = palette_crgb[i];
+                            }
+                            break;
+                    }
+                    xSemaphoreGive(mutex_leds);
+                    show_leds();
+
+                    int new_pos = SERVO_ART_POS;
+                    xQueueSend(q_servo, &new_pos, 0);  // move after we have displayed
+                } else {                               // no art, go blank
+                    int new_pos = SERVO_BLUR_POS;
+                    xQueueSend(q_servo, &new_pos, 0);  // move before we display
+                    FastLED.clear();
+                    show_leds();
+                }
+                break;
+            }
+            case DISPLAY_AUDIO: {
+                int new_pos = SERVO_BLUR_POS;
+                xQueueSend(q_servo, &new_pos, 0);
+
+                uint8_t done;
+                xQueueReceive(q_audio_done, &done, portMAX_DELAY);
+                show_leds();
+                break;
+            }
+        }
+        nblendPaletteTowardPalette(curr_palette, target_palette, PALETTE_CHANGE_RATE);
+
         // vTaskDelay((1000 / FPS) / portTICK_RATE_MS);
+        //   Serial.println(FastLED.getFPS());
+        taskYIELD();  // yield first in case the next line doesn't actually delay
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+}
+
+void task_audio_code(void *parameter) {
+    Serial.print("task_audio_code running on core ");
+    Serial.println(xPortGetCoreID());
+
+    TickType_t xLastWakeTime;
+    const TickType_t xFrequency = ((FFT_SAMPLES / 2.0) / I2S_SAMPLE_RATE * 1000) / portTICK_RATE_MS;
+
+    AudioProcessor ap = AudioProcessor(false, false, true, true);
+    Modes modes;
+    void (*audio_display_func)(AudioProcessor * ap);
+    CRGB last_leds[NUM_LEDS] = {0};  // capture the last led state before transitioning to a new mode;
+    BaseType_t q_return;
+    int blend_counter = 0;
+
+    xQueueReceive(q_mode, &modes, portMAX_DELAY);  // at the start, wait until we get a mode indication
+
+    // Initialise the xLastWakeTime variable with the current time.
+    xLastWakeTime = xTaskGetTickCount();
+
+    for (;;) {
+        q_return = xQueueReceive(q_mode, &modes, 0);  // check if there is a new mode, if not, we just use the last mode
+
+        if (modes.display.get_mode() == DISPLAY_AUDIO) {
+            switch (modes.audio.get_mode()) {
+                case AUDIO_SNAKE_GRID:
+                    audio_display_func = set_leds_sym_snake_grid;
+                    break;
+                case AUDIO_NOISE:
+                    audio_display_func = set_leds_noise;
+                    break;
+                case AUDIO_SCROLLING:
+                    audio_display_func = set_leds_scrolling;
+                    break;
+                    // case AUDIO_BARS:
+                    //     audio_display_func = set_leds_bars;
+                    //     break;
+            }
+
+            run_audio(&ap);
+
+            xSemaphoreTake(mutex_leds, portMAX_DELAY);
+            // Blend with the last image on the led before we changed modes
+            if (blend_counter == 0) {  // if the counter reset to 0 it means we changed modes
+                memcpy(last_leds, leds, sizeof(CRGB) * NUM_LEDS);
+            }
+
+            audio_display_func(&ap);
+
+            if (blend_counter <= 90) {
+                for (int i = 0; i < NUM_LEDS; i++) {
+                    int blend_factor = int(round(pow(blend_counter / 90.0, 2.2) * 255));
+                    leds[i] = blend(last_leds[i], leds[i], blend_factor);
+                }
+                blend_counter += 1;
+            }
+
+            xSemaphoreGive(mutex_leds);
+            uint8_t done;
+            xQueueSend(q_audio_done, &done, 0);
+        } else {
+            blend_counter = 0;  // reset the blend counter
+        }
+
         vTaskDelay(1);  // TODO: check this
+        // taskYIELD();  // yield first in case the next line doesn't actually delay
+        // vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 
     vTaskDelete(NULL);
@@ -313,7 +508,6 @@ void run_audio(AudioProcessor *ap) {
     ap->get_audio_samples_gapless();
     ap->update_volume();
     ap->run_fft();
-    audio_display_func[audio_display_idx](ap);
 }
 
 void task_spotify_code(void *parameter) {
@@ -328,7 +522,7 @@ void task_spotify_code(void *parameter) {
             if (sp.art_changed) {
                 decode_art(&sp);
             }
-            xQueueSend(q_sp, &sp, 0);  // set timeout to zero so loop will continue until display is updated
+            xQueueSend(q_spotify, &sp, 0);  // set timeout to zero so loop will continue until display is updated
         } else {
             Serial.println("Error: WiFi not connected! status = " + String(WiFi.status()));
         }
@@ -337,132 +531,102 @@ void task_spotify_code(void *parameter) {
     vTaskDelete(NULL);
 }
 
-void task_display_art_code(void *parameter) {
-    Serial.print("task_display_art_code running on core ");
-    Serial.println(xPortGetCoreID());
-
-    uint8_t change_mode = 0;
-    Spotify sp;
-    String curr_track_id = "";
-    uint8_t counter = 0;
-    BaseType_t q_return;
-    double percent_complete = 0.0;
-
-    for (;;) {
-        // xQueueReceive(q_change_mode, &change_mode, 0);
-        // if (change_mode) {
-        //   curr_mode = (curr_mode + 1) % 2;
-        //   change_mode = 0;
-
-        //   FastLED.clear();
-
-        //   curr_track_id = ""; // reset to force art display on mode change
-        //   xQueueReset(q_sp_data); // reset the queue since we haven't been consuming it
-        // }
-        // if (curr_mode % 2) {
-        //   xQueueReceive(q_sp_data, &sp_data, 0);  // only use this for the bpm demo
-        //   display_led_demo(&sp_data);
-        //   servo_pos = 110;
-        //   move_servo();
-        // } else {
-        //   servo_pos = 30;
-        //   move_servo();
-        xSemaphoreTake(mutex_display, portMAX_DELAY);  // wait until other threads are done acting on the display, take the mutex here, _before_ we check the mode
-        if (curr_mode == MODE_ART) {                   // only run when mode is active
-            q_return = xQueueReceive(q_sp, &sp, 0);
-
-            if (q_return == pdTRUE && sp.is_active == true) {
-                percent_complete = double(sp.progress_ms) / sp.duration_ms * 100;
-                // Serial.println("Playing..." + String(percent_complete) + "%");
-            }
-            // Display art and current elapsed regardless of if we have new data from the queue
-            if (sp.is_art_loaded && sp.is_active == true) {
-                display_full_art(0);
-                counter = (counter + 1) % 4;
-
-                // Update the LED indicator at the bottom of the array
-                int grid_pos = int(round(percent_complete / 100 * GRID_W));
-
-                for (int i = 0; i < GRID_W; i++) {
-                    if (i < grid_pos) {
-                        leds[i] = CRGB::Red;
-                    }
-                }
-                // for (int i=0; i<PALETTE_ENTRIES; i++) {
-                //   leds[i] = palette_crgb[i];
-                // }
-            } else {
-                lissajous();
-            }
-            // FastLED.setBrightness(int(MAX_BRIGHT * 0.75));
-            FastLED.show();
-            move_servo();
-        }
-        xSemaphoreGive(mutex_display);  // release the display mutex
-        // Serial.println(uxTaskGetStackHighWaterMark(NULL));
-        vTaskDelay(10 / portTICK_RATE_MS);
-    }
-    vTaskDelete(NULL);
-}
-
 void task_buttons_code(void *parameter) {
     Serial.print("task_buttons_code running on core ");
     Serial.println(xPortGetCoreID());
 
-    uint8_t change_mode = 1;
-
     ButtonFSM button_fsm = ButtonFSM(PIN_BUTTON_MODE);
+    ButtonFSMState button_state;
 
     for (;;) {
         button_fsm.advance();
+        button_state = button_fsm.get_state();
 
-        if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
-            servo_pos = SERVO_BLUR_POS;
-            move_servo();  // set servo to known position before going to sleep
+        // if (Serial.available() && Serial.read() == 'f') {
+        //     servo_pos += 1;
+        //     move_servo();
+        // }
+        // if (Serial.available() && Serial.read() == 'b') {
+        //     servo_pos -= 1;
+        //     move_servo();
+        // }
+        if (button_state == HOLD_TRIGGERED) {  // change modes
+            xQueueSend(q_button_to_display, &button_state, 0);
+            xQueueSend(q_button_to_audio, &button_state, 0);
 
-            xSemaphoreTake(mutex_display, portMAX_DELAY);  // wait until other threads are done acting on the display
-            FastLED.clear(true);
-            vTaskDelay(100 / portTICK_RATE_MS);  // wait for display to clear
-            Serial.println("Switch is high, going to sleep");
-            esp_deep_sleep_start();
+            Serial.println("Hold button");
+            // Serial.println("Mode change");
+
+            // xSemaphoreTake(mutex_leds, portMAX_DELAY);
+            // FastLED.clear(true);                 // clear before mode change in case task switches
+            // vTaskDelay(100 / portTICK_RATE_MS);  // delay to ensure the display fully clears
+
+            // curr_mode = (curr_mode + 1) % 2;
+
+            // if (curr_mode == MODE_AUDIO) {
+            //     audio_display_idx = (audio_display_idx + 1) % 2;
+            //     servo_pos = SERVO_BLUR_POS;
+            // }
+            // if (curr_mode == MODE_ART) servo_pos = SERVO_ART_POS;
+            // Serial.println("curr_mode = " + String(curr_mode));
+            // xSemaphoreGive(mutex_leds);
         }
+        if (button_state == MOMENTARY_TRIGGERED) {  // move the servos
+            xQueueSend(q_button_to_display, &button_state, 0);
+            xQueueSend(q_button_to_audio, &button_state, 0);
 
-        if (Serial.available() && Serial.read() == 'f') {
-            servo_pos += 1;
-            move_servo();
-        }
-        if (Serial.available() && Serial.read() == 'b') {
-            servo_pos -= 1;
-            move_servo();
-        }
-        if (button_fsm.get_state() == HOLD_TRIGGERED) {
-            Serial.println("Mode change");
-            // xQueueSend(q_change_mode, &change_mode, 0);
+            Serial.println("Momentary button");
 
-            xSemaphoreTake(mutex_display, portMAX_DELAY);
-            FastLED.clear(true);                 // clear before mode change in case task switches
-            vTaskDelay(100 / portTICK_RATE_MS);  // delay to ensure the display fully clears
-
-            curr_mode = (curr_mode + 1) % 2;
-
-            if (curr_mode == MODE_AUDIO) {
-                audio_display_idx = (audio_display_idx + 1) % 2;
-                servo_pos = SERVO_BLUR_POS;
-            }
-            if (curr_mode == MODE_ART) servo_pos = SERVO_ART_POS;
-            Serial.println("curr_mode = " + String(curr_mode));
-            xSemaphoreGive(mutex_display);
-        }
-        if (button_fsm.get_state() == MOMENTARY_TRIGGERED) {
-            if (servo_pos == SERVO_BLUR_POS) {
-                servo_pos = SERVO_ART_POS;
-            } else {
-                servo_pos = SERVO_BLUR_POS;
-            }
-            move_servo();
+            // if (servo_pos == SERVO_BLUR_POS) {
+            //     servo_pos = SERVO_ART_POS;
+            // } else {
+            //     servo_pos = SERVO_BLUR_POS;
+            // }
+            // move_servo();
         }
         // Serial.println(uxTaskGetStackHighWaterMark(NULL));
         vTaskDelay(BUTTON_FSM_CYCLE_TIME_MS / portTICK_RATE_MS);  // added to avoid starving other tasks
+    }
+    vTaskDelete(NULL);
+}
+
+void task_servo_code(void *parameter) {
+    Serial.print("task_servo_code running on core ");
+    Serial.println(xPortGetCoreID());
+
+    int target_pos, curr_pos;
+    BaseType_t q_return;
+
+    // Initialize variables
+    curr_pos = SERVO_BLUR_POS;  // this is the default position we should end at on power down
+    myservo.write(curr_pos);
+
+    target_pos = curr_pos;
+
+    for (;;) {
+        q_return = xQueueReceive(q_servo, &target_pos, portMAX_DELAY);  // check if there is a new value in the queue
+        if (q_return == pdTRUE) {
+            if (target_pos > SERVO_MAX_POS) target_pos = SERVO_MAX_POS;
+            if (target_pos < SERVO_MIN_POS) target_pos = SERVO_MIN_POS;
+        }
+
+        curr_pos = myservo.read();
+        if (curr_pos != target_pos) {  // only try to move if we are going to a new position
+            Serial.println("Servo starting pos: " + String(curr_pos));
+            if (curr_pos < target_pos) {
+                for (int i = curr_pos; i <= target_pos; i++) {
+                    myservo.write(i);
+                    vTaskDelay(SERVO_CYCLE_TIME_MS / portTICK_RATE_MS);
+                }
+            } else {
+                for (int i = curr_pos; i >= target_pos; i--) {
+                    myservo.write(i);
+                    vTaskDelay(SERVO_CYCLE_TIME_MS / portTICK_RATE_MS);
+                }
+            }
+            Serial.println("Servo ending pos: " + String(target_pos));
+        }
+        vTaskDelay(SERVO_CYCLE_TIME_MS / portTICK_RATE_MS);
     }
     vTaskDelete(NULL);
 }
@@ -546,30 +710,30 @@ void mapNoiseToLEDsUsingPalette() {
 }
 
 void set_leds_noise(AudioProcessor *ap) {
-    if (ap->beat_detected) {
-        uint8_t change_type = random8(6);  // select a random behavior
+    // if (ap->beat_detected) {
+    //     uint8_t change_type = random8(6);  // select a random behavior
 
-        switch (change_type) {  // either change the scale or scan in XY
-            case 0:
-                target_scale = constrain(scale + random8(30, 40), 20, 50);
-                break;
-            case 1:
-                target_scale = constrain(scale - random8(30, 40), 20, 50);
-                break;
-            case 2:
-                target_x = constrain(x + 16 * (random8(3, 7)) * scale / 10, 0, 65535);  // scale by "scale" so that the moves look similar
-                break;
-            case 3:
-                target_y = constrain(y + 16 * (random8(3, 7)) * scale / 10, 0, 65535);
-                break;
-            case 4:
-                target_x = constrain(x - 16 * (random8(3, 7)) * scale / 10, 0, 65535);
-                break;
-            case 5:
-                target_y = constrain(y - 16 * (random8(3, 7)) * scale / 10, 0, 65535);
-                break;
-        }
-    }
+    //     switch (change_type) {  // either change the scale or scan in XY
+    //         case 0:
+    //             target_scale = constrain(scale + random8(30, 40), 20, 50);
+    //             break;
+    //         case 1:
+    //             target_scale = constrain(scale - random8(30, 40), 20, 50);
+    //             break;
+    //         case 2:
+    //             target_x = constrain(x + 16 * (random8(3, 7)) * scale / 10, 0, 65535);  // scale by "scale" so that the moves look similar
+    //             break;
+    //         case 3:
+    //             target_y = constrain(y + 16 * (random8(3, 7)) * scale / 10, 0, 65535);
+    //             break;
+    //         case 4:
+    //             target_x = constrain(x - 16 * (random8(3, 7)) * scale / 10, 0, 65535);
+    //             break;
+    //         case 5:
+    //             target_y = constrain(y - 16 * (random8(3, 7)) * scale / 10, 0, 65535);
+    //             break;
+    //     }
+    // }
 
     // generate noise data
     fillnoise8();
@@ -718,29 +882,6 @@ void set_leds_scrolling(AudioProcessor *ap) {
 //                                           // EVERY_N_SECONDS( 10 ) { nextPattern(); } // change patterns periodically
 // }
 
-void move_servo() {
-    if (servo_pos > SERVO_MAX_POS) servo_pos = SERVO_MAX_POS;
-    if (servo_pos < SERVO_MIN_POS) servo_pos = SERVO_MIN_POS;
-    int curr_pos = myservo.read();
-    if (curr_pos != servo_pos) {  // only try to move if we are going to a new position
-        Serial.println("Servo starting pos: " + String(curr_pos));
-        if (curr_pos < servo_pos) {
-            for (int i = curr_pos; i <= servo_pos; i++) {
-                myservo.write(i);
-                vTaskDelay(20 / portTICK_RATE_MS);
-            }
-        } else {
-            for (int i = curr_pos; i >= servo_pos; i--) {
-                myservo.write(i);
-                vTaskDelay(20 / portTICK_RATE_MS);
-            }
-        }
-
-        Serial.println("Servo ending pos: " + String(servo_pos));
-        // myservo.write(servo_pos);
-    }
-}
-
 /*** Get Index of LED on a serpentine grid ***/
 int grid_to_idx(int x, int y, bool start_top_left) {
     /**
@@ -768,11 +909,11 @@ int grid_to_idx(int x, int y, bool start_top_left) {
     return idx;
 }
 
-void display_full_art(uint8_t idx) {
+void display_full_art(uint8_t skip) {
     for (int row = 0; row < GRID_H; row++) {
         for (int col = 0; col < GRID_W; col++) {
-            uint8_t full_row = row * 4 + idx;
-            uint8_t full_col = col * 4 + idx;
+            uint8_t full_row = row * 4 + (skip / 4);
+            uint8_t full_col = col * 4 + (skip % 4);
 
             // Select the last row/col so artwork with borders looks cleaner
             if (row == GRID_H - 1) full_row = GRID_H * 4 - 1;
@@ -800,7 +941,7 @@ void display_full_art(uint8_t idx) {
 
             int idx = grid_to_idx(col, row, true);
             if (idx >= 0) {
-                leds[idx] = CRGB(r8, g8, b8);
+                leds[idx] = blend(leds[idx], CRGB(r8, g8, b8), int(round(LED_SMOOTHING * 0.25 * 255)));
             }
         }
     }
