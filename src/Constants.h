@@ -32,6 +32,31 @@
 #define FFTS_PER_SEC int(double(I2S_SAMPLE_RATE) / FFT_SAMPLES)  // number of FFTs computed each sec
 #define SPOTIFY_CYCLE_TIME_MS 1000                               // how often to run the spotify update
 
+// Display refresh
+#define DISPLAY_ART_DURATION_MS 10000
+#define DISPLAY_AUDIO_DURATION_MS 60000
+
+// Mode enums/structs
+enum DisplayMode {
+    DISPLAY_ART,
+    DISPLAY_AUDIO,
+    DISPLAY_MODES_MAX
+};
+enum ArtMode {
+    ART_WITH_ELAPSED,
+    ART_WITHOUT_ELAPSED,
+    ART_WITH_PALETTE,
+    ART_MODES_MAX
+};
+enum AudioMode {
+    AUDIO_NOISE,
+    AUDIO_SNAKE_GRID,
+    AUDIO_SCROLLING,
+    // AUDIO_BARS,
+    AUDIO_MODES_MAX
+};
+const unsigned long DISPLAY_DURATIONS[DISPLAY_MODES_MAX] = {DISPLAY_ART_DURATION_MS, DISPLAY_AUDIO_DURATION_MS};
+
 // Specific to audio volume control
 #define VOL_FACTOR 10                        // empirically found that RMS of signal needs x10 to match RMS of FFT
 #define VOL_MULT 0.4 * 256 / FFT_SAMPLES     // multiplier to go from volume to FFT max value, scaled by FFT_SAMPLES because more samples = less energy per bin
@@ -67,6 +92,7 @@
 #define SERVO_ART_POS 110
 
 #define SERVO_BUTTON_HOLD_DELAY_MS 50
+#define SERVO_CYCLE_TIME_MS 20
 
 // Macros
 #define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))

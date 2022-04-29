@@ -26,6 +26,7 @@ void Timer::reset(void) {
 
 void Timer::set_timeout_ms(uint32_t timeout_ms) {
     _timeout_ms = timeout_ms;
+    reset();
 }
 
 uint32_t Timer::get_timeout_ms(void) {

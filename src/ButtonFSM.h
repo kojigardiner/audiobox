@@ -5,7 +5,7 @@
 
 #define DEBOUNCE_TIMEOUT_MS 50
 #define BUTTON_HOLD_TIME_MS 500
-#define BUTTON_FSM_CYCLE_TIME_MS 1
+#define BUTTON_FSM_CYCLE_TIME_MS 10
 
 enum ButtonFSMState {
     START,
