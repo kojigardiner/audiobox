@@ -31,10 +31,9 @@ void lissajous();
 void wu_pixel(uint16_t x, uint16_t y, CRGB *col);
 
 // Display Functions
-bool display_image(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap);  // callback function for JPG decoder
 bool copy_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap);  // callback function for JPG decoder
 int grid_to_idx(int x, int y, bool start_top_left);
-void display_full_art(uint8_t skip);
+void display_full_art(uint8_t offset_row, uint8_t offset_col);
 void decode_art(Spotify *sp);
 
 // Audio Functions
@@ -176,8 +175,7 @@ void setup() {
 
     // JPG decoder setup
     Serial.print("Setting up JPG decoder\n");
-    TJpgDec.setJpgScale(1);  // Assuming 64x64 image, will rescale to 16x16
-    // TJpgDec.setCallback(display_image);  // The decoder must be given the exact name of the rendering function above
+    TJpgDec.setJpgScale(1);              // Assuming 64x64 image, will rescale to 16x16
     TJpgDec.setCallback(copy_jpg_data);  // The decoder must be given the exact name of the rendering function above
 
     // Filessystem setup
@@ -382,8 +380,8 @@ void task_display_code(void *parameter) {
                 if (sp.is_art_loaded && sp.is_active) {
                     xSemaphoreTake(mutex_leds, portMAX_DELAY);
 
-                    display_full_art(0);
-                    counter = (counter + 1) % 16;
+                    // display_full_art(rand() % 4, rand() % 4);
+                    display_full_art(0, 0);
                     switch (modes.art.get_mode()) {
                         case ART_WITH_ELAPSED: {  // Update the LED indicator at the bottom of the array
                             int grid_pos = int(round(percent_complete / 100 * GRID_W));
@@ -447,6 +445,10 @@ void task_audio_code(void *parameter) {
     BaseType_t q_return;
     int blend_counter = 0;
 
+    // calculate the number of cycles to take to fully blend based on servo move time
+    // TODO: is this correct? since this task is not operating at FPS speed
+    int max_blend_count = int((SERVO_CYCLE_TIME_MS / 1000.0 * (SERVO_ART_POS - SERVO_BLUR_POS)) * FPS * 1.25);
+
     xQueueReceive(q_mode, &modes, portMAX_DELAY);  // at the start, wait until we get a mode indication
 
     // Initialise the xLastWakeTime variable with the current time.
@@ -481,9 +483,10 @@ void task_audio_code(void *parameter) {
 
             audio_display_func(&ap);
 
-            if (blend_counter <= 90) {
+            if (blend_counter <= max_blend_count) {
+                Serial.println("here");
                 for (int i = 0; i < NUM_LEDS; i++) {
-                    int blend_factor = int(round(pow(blend_counter / 90.0, 2.2) * 255));
+                    int blend_factor = int(round(pow(float(blend_counter) / max_blend_count, 2.2) * 255));
                     leds[i] = blend(last_leds[i], leds[i], blend_factor);
                 }
                 blend_counter += 1;
@@ -555,34 +558,12 @@ void task_buttons_code(void *parameter) {
             xQueueSend(q_button_to_audio, &button_state, 0);
 
             Serial.println("Hold button");
-            // Serial.println("Mode change");
-
-            // xSemaphoreTake(mutex_leds, portMAX_DELAY);
-            // FastLED.clear(true);                 // clear before mode change in case task switches
-            // vTaskDelay(100 / portTICK_RATE_MS);  // delay to ensure the display fully clears
-
-            // curr_mode = (curr_mode + 1) % 2;
-
-            // if (curr_mode == MODE_AUDIO) {
-            //     audio_display_idx = (audio_display_idx + 1) % 2;
-            //     servo_pos = SERVO_BLUR_POS;
-            // }
-            // if (curr_mode == MODE_ART) servo_pos = SERVO_ART_POS;
-            // Serial.println("curr_mode = " + String(curr_mode));
-            // xSemaphoreGive(mutex_leds);
         }
         if (button_state == MOMENTARY_TRIGGERED) {  // move the servos
             xQueueSend(q_button_to_display, &button_state, 0);
             xQueueSend(q_button_to_audio, &button_state, 0);
 
             Serial.println("Momentary button");
-
-            // if (servo_pos == SERVO_BLUR_POS) {
-            //     servo_pos = SERVO_ART_POS;
-            // } else {
-            //     servo_pos = SERVO_BLUR_POS;
-            // }
-            // move_servo();
         }
         // Serial.println(uxTaskGetStackHighWaterMark(NULL));
         vTaskDelay(BUTTON_FSM_CYCLE_TIME_MS / portTICK_RATE_MS);  // added to avoid starving other tasks
@@ -909,11 +890,11 @@ int grid_to_idx(int x, int y, bool start_top_left) {
     return idx;
 }
 
-void display_full_art(uint8_t skip) {
+void display_full_art(uint8_t offset_row, uint8_t offset_col) {
     for (int row = 0; row < GRID_H; row++) {
         for (int col = 0; col < GRID_W; col++) {
-            uint8_t full_row = row * 4 + (skip / 4);
-            uint8_t full_col = col * 4 + (skip % 4);
+            uint8_t full_row = row * 4 + offset_row;
+            uint8_t full_col = col * 4 + offset_col;
 
             // Select the last row/col so artwork with borders looks cleaner
             if (row == GRID_H - 1) full_row = GRID_H * 4 - 1;
@@ -925,9 +906,9 @@ void display_full_art(uint8_t skip) {
             uint8_t g6 = (rgb565 >> 5) & 0x3F;
             uint8_t b5 = (rgb565)&0x1F;
 
-            uint8_t r8 = round(pow(float(r5) / 31, LED_GAMMA / JPG_GAMMA) * 255);
-            uint8_t g8 = round(pow(float(g6) / 63, LED_GAMMA / JPG_GAMMA) * 255);
-            uint8_t b8 = round(pow(float(b5) / 31, LED_GAMMA / JPG_GAMMA) * 255);
+            uint8_t r8 = round(pow(float(r5) / 31, LED_GAMMA_R / JPG_GAMMA) * 255);
+            uint8_t g8 = round(pow(float(g6) / 63, LED_GAMMA_G / JPG_GAMMA) * 255);
+            uint8_t b8 = round(pow(float(b5) / 31, LED_GAMMA_B / JPG_GAMMA) * 255);
 
             // Serial.println(r5);
             // Serial.println(g6);
@@ -963,46 +944,6 @@ bool copy_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitma
     return true;
 }
 
-bool display_image(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
-    // Note bitmap is in RGB565 format!!!
-
-    // Stop further decoding as image is running off bottom of screen
-    x /= 4;
-    y /= 4;
-
-    if (y >= GRID_H) return false;
-
-    for (int row = 0; row < h; row++) {
-        for (int col = 0; col < w; col++) {
-            uint16_t rgb565 = bitmap[row * w * 4 + col * 4];
-            uint8_t r5 = (rgb565 >> 11) & 0x1F;
-            uint8_t g6 = (rgb565 >> 5) & 0x3F;
-            uint8_t b5 = (rgb565)&0x1F;
-
-            uint8_t r8 = round(pow(float(r5) / 31, LED_GAMMA / JPG_GAMMA) * 255);
-            uint8_t g8 = round(pow(float(g6) / 63, LED_GAMMA / JPG_GAMMA) * 255);
-            uint8_t b8 = round(pow(float(b5) / 31, LED_GAMMA / JPG_GAMMA) * 255);
-
-            // Serial.println(r5);
-            // Serial.println(g6);
-            // Serial.println(b5);
-
-            // Serial.println(r8);
-            // Serial.println(g8);
-            // Serial.println(b8);
-
-            // Serial.println();
-
-            int idx = grid_to_idx(x + col, y + row, true);
-            if (idx >= 0) {
-                leds[idx] = CRGB(r8, g8, b8);
-            }
-        }
-    }
-
-    return true;
-}
-
 // Decode art from jpg into full_art, and calculate palette
 void decode_art(Spotify *sp) {
     Serial.println("Decoding art, " + String(sp->art_num_bytes) + " bytes");
@@ -1013,9 +954,9 @@ void decode_art(Spotify *sp) {
     Serial.println("Finished mean cut, printing returned results");
     for (int i = 0; i < PALETTE_ENTRIES; i++) {
         Serial.println(String(palette_results[i][0]) + "," + String(palette_results[i][1]) + "," + String(palette_results[i][2]));
-        uint8_t r8 = round(pow(float(palette_results[i][0]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
-        uint8_t g8 = round(pow(float(palette_results[i][1]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
-        uint8_t b8 = round(pow(float(palette_results[i][2]) / 255, LED_GAMMA / JPG_GAMMA) * 255);
+        uint8_t r8 = round(pow(float(palette_results[i][0]) / 255, LED_GAMMA_R / JPG_GAMMA) * 255);
+        uint8_t g8 = round(pow(float(palette_results[i][1]) / 255, LED_GAMMA_G / JPG_GAMMA) * 255);
+        uint8_t b8 = round(pow(float(palette_results[i][2]) / 255, LED_GAMMA_B / JPG_GAMMA) * 255);
         palette_crgb[i] = CRGB(r8, g8, b8);
     }
 

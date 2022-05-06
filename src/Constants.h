@@ -16,7 +16,11 @@
 
 #define MAX_BRIGHT 100  // sets max brightness for LEDs
 #define JPG_GAMMA 2.2
-#define LED_GAMMA 2.8
+
+// gamma to use for color channels (see: https://drive.google.com/file/d/1v7AEu2hqfFiiNiP1ngT0oPzDP944fT0s/view?usp=sharing)
+#define LED_GAMMA_R 3.0
+#define LED_GAMMA_G 3.3
+#define LED_GAMMA_B 4.0
 
 // LED defines
 #define GRID_H 16
@@ -89,10 +93,10 @@ const unsigned long DISPLAY_DURATIONS[DISPLAY_MODES_MAX] = {DISPLAY_ART_DURATION
 #define SERVO_MIN_POS 30
 
 #define SERVO_BLUR_POS 50
-#define SERVO_ART_POS 110
+#define SERVO_ART_POS 75
 
 #define SERVO_BUTTON_HOLD_DELAY_MS 50
-#define SERVO_CYCLE_TIME_MS 20
+#define SERVO_CYCLE_TIME_MS 50
 
 // Macros
 #define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))

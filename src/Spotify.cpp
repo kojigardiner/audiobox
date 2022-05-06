@@ -3,18 +3,28 @@
 // Default constructor
 Spotify::Spotify() {
     // don't run _get_token here, because we may not be connected to the network yet
+    _reset_variables();
 }
 
 // Main function to be run in a loop, updates variables regarding state of playback
 void Spotify::update() {
     if (_token_expired) {
-        _get_token();
+        while (!_get_token()) {  // keep trying to get a token
+            delay(1000);
+        }
+        _reset_variables();
     }
-    _get_player();
+
+    if (!_get_player()) {
+        _reset_variables();
+    }
 
     if (track_changed) {
-        _get_features();
-        print();
+        if (!_get_features()) {
+            _reset_variables();
+        } else {
+            print();
+        }
     }
 }
 
@@ -51,7 +61,9 @@ void Spotify::print() {
 }
 
 // Gets token for use with Spotify Web API
-void Spotify::_get_token() {
+bool Spotify::_get_token() {
+    bool ret;
+
     Serial.println("Getting Spotify token...");
 
     HTTPClient http;
@@ -65,15 +77,20 @@ void Spotify::_get_token() {
         _token = payload.substring(payload.indexOf("access_token=") + 13, payload.indexOf("&token_type"));
         Serial.print("Token: ");
         Serial.println(_token);
+        ret = true;
     } else {
         Serial.println(String(httpCode) + ": Error retrieving token");
+        ret = false;
     }
 
     http.end();
+
+    return ret;
 }
 
 // Gets the Spotify player data from the web API
-void Spotify::_get_player() {
+bool Spotify::_get_player() {
+    bool ret;
     HTTPClient http;
 
     http.begin(SPOTIFY_PLAYER_URL);
@@ -88,8 +105,13 @@ void Spotify::_get_player() {
     switch (httpCode) {  // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
         case HTTP_CODE_OK: {
             DynamicJsonDocument json(20000);
-            deserializeJson(json, payload);
-            _parse_json(&json);
+            if (deserializeJson(json, payload) != DeserializationError::Ok) {
+                Serial.println("json deserialization error");
+                ret = false;
+            } else {
+                _parse_json(&json);
+                ret = true;
+            }
 
             _token_expired = false;
             break;
@@ -97,26 +119,33 @@ void Spotify::_get_player() {
         case HTTP_CODE_NO_CONTENT:
             Serial.println(String(httpCode) + ": Playback not available/active");
             _token_expired = false;
+            ret = false;
             break;
         case HTTP_CODE_BAD_REQUEST:
         case HTTP_CODE_UNAUTHORIZED:
         case HTTP_CODE_FORBIDDEN:
             Serial.println(String(httpCode) + ": Bad/expired token or OAuth request");
             _token_expired = true;
+            ret = false;
             break;
         case HTTP_CODE_TOO_MANY_REQUESTS:
             Serial.println(String(httpCode) + ": Exceeded rate limits");
             _token_expired = false;
+            ret = false;
             break;
         default:
             Serial.println(String(httpCode) + ": Unrecognized error");
             _token_expired = true;
+            ret = false;
             break;
     }
+
+    return ret;
 }
 
 // Gets more detailed features of the currently playing track via the Spotify Web API
-void Spotify::_get_features() {
+bool Spotify::_get_features() {
+    bool ret;
     HTTPClient http;
 
     http.begin(SPOTIFY_FEATURES_URL + "/" + track_id);
@@ -131,33 +160,45 @@ void Spotify::_get_features() {
     switch (httpCode) {  // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
         case HTTP_CODE_OK: {
             DynamicJsonDocument json(20000);
-            deserializeJson(json, payload);
-
-            tempo = json["tempo"].as<float>();
-            energy = json["energy"].as<float>();
+            if (deserializeJson(json, payload) != DeserializationError::Ok) {
+                Serial.println("json deserialization error");
+                ret = false;
+            } else {
+                tempo = json["tempo"].as<float>();
+                energy = json["energy"].as<float>();
+                ret = true;
+            }
 
             _token_expired = false;
             break;
         }
         case HTTP_CODE_NO_CONTENT:
             Serial.println(String(httpCode) + ": Playback not available/active");
+            is_active = false;
+            is_playing = false;
             _token_expired = false;
+            ret = false;
             break;
         case HTTP_CODE_BAD_REQUEST:
         case HTTP_CODE_UNAUTHORIZED:
         case HTTP_CODE_FORBIDDEN:
             Serial.println(String(httpCode) + ": Bad/expired token or OAuth request");
             _token_expired = true;
+            ret = false;
             break;
         case HTTP_CODE_TOO_MANY_REQUESTS:
             Serial.println(String(httpCode) + ": Exceeded rate limits");
             _token_expired = false;
+            ret = false;
             break;
         default:
             Serial.println(String(httpCode) + ": Unrecognized error");
             _token_expired = true;
+            ret = false;
             break;
     }
+
+    return ret;
 }
 
 // Parses json response from the Spotify Web API and stores results in member variables
@@ -211,7 +252,8 @@ void Spotify::_parse_json(DynamicJsonDocument *json) {
 }
 
 // Downloads album cover art
-void Spotify::_get_art() {
+bool Spotify::_get_art() {
+    bool ret;
     int start_ms = millis();
     Serial.println("Downloading " + art_url);
 
@@ -270,11 +312,41 @@ void Spotify::_get_art() {
         // Serial.print("[HTTP] connection closed or file end.\n");
         is_art_loaded = true;
         Serial.println(String(millis() - start_ms) + "ms to download art");
+        ret = true;
     }
     // f.close();
     else {
         Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
         is_art_loaded = false;
+        ret = false;
     }
     http.end();
+
+    return ret;
+}
+
+void Spotify::_reset_variables() {
+    progress_ms = 0;
+    duration_ms = 0;
+    volume = 0;
+    track_id = "";
+    artists = "";
+    track_title = "";
+    album = "";
+    device = "";
+    device_type = "";
+    art_url = "";
+    art_width = 0;
+    is_active = false;
+    is_playing = false;
+    if (art_data != NULL) {
+        free(art_data);
+    }
+    art_data = NULL;
+    art_num_bytes = 0;
+    is_art_loaded = false;
+    tempo = 0.0;
+    energy = 0.0;
+    track_changed = false;
+    art_changed = false;
 }

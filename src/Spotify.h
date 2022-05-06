@@ -41,11 +41,12 @@ class Spotify {
 
    private:
     // Methods
-    void _get_token();
-    void _get_player();
-    void _get_features();
-    void _get_art();
+    bool _get_token();
+    bool _get_player();
+    bool _get_features();
+    bool _get_art();
     void _parse_json(DynamicJsonDocument *json);
+    void _reset_variables();
 
     // Variables
     bool _token_expired = true;
