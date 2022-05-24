@@ -14,21 +14,8 @@
 #include "Mode.h"
 #include "NetworkConstants.h"
 #include "Spotify.h"
-#include "Timer.h"
 
 /*** Function Prototypes ***/
-
-// LED Functions
-void nextPattern();
-void rainbow();
-void rainbowWithGlitter();
-void addGlitter(fract8 chanceOfGlitter);
-void confetti();
-void sinelon();
-void bpm(uint8_t bpm);
-void juggle();
-void lissajous();
-void wu_pixel(uint16_t x, uint16_t y, CRGB *col);
 
 // Display Functions
 bool copy_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap);  // callback function for JPG decoder
@@ -41,9 +28,8 @@ void run_audio(AudioProcessor *ap);
 void set_leds_sym_snake_grid(AudioProcessor *ap);
 void set_leds_scrolling(AudioProcessor *ap);
 void set_leds_bars(AudioProcessor *ap);
+void set_leds_outrun_bars(AudioProcessor *ap);
 void set_leds_noise(AudioProcessor *ap);
-void (*audio_display_func[])(AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_noise};  //, set_leds_bars}; //, set_leds_scrolling};
-                                                                                             // void (*audio_display_func[]) (AudioProcessor *) = {set_leds_sym_snake_grid, set_leds_scrolling};
 
 /*** Globals ***/
 
@@ -61,7 +47,15 @@ TaskHandle_t task_display;
 TaskHandle_t task_servo;
 TaskHandle_t task_setup;
 
-// Queues to serve data to the display task
+// Task functions
+void task_spotify_code(void *parameter);
+void task_audio_code(void *parameter);
+void task_buttons_code(void *parameter);
+void task_display_code(void *parameter);
+void task_servo_code(void *parameter);
+void task_setup_code(void *parameter);
+
+// Queues to move data between tasks
 QueueHandle_t q_spotify;
 QueueHandle_t q_button_to_display;
 QueueHandle_t q_button_to_audio;
@@ -72,21 +66,26 @@ QueueHandle_t q_audio_done;
 // Semaphores
 SemaphoreHandle_t mutex_leds;
 
-void task_spotify_code(void *parameter);
-void task_audio_code(void *parameter);
-void task_buttons_code(void *parameter);
-void task_display_code(void *parameter);
-void task_servo_code(void *parameter);
-void task_setup_code(void *parameter);
-
-// LED Globals
-CRGB leds[NUM_LEDS];                    // array that will hold LED values
+// LED Functions
+void nextPattern();
+void rainbow();
+void rainbowWithGlitter();
+void addGlitter(fract8 chanceOfGlitter);
+void confetti();
+void sinelon();
+void bpm(uint8_t bpm);
+void juggle();
+void lissajous();
+void wu_pixel(uint16_t x, uint16_t y, CRGB *col);
 typedef void (*SimplePatternList[])();  // List of patterns to cycle through.  Each is defined as a separate function below.
 // SimplePatternList gPatterns = { rainbow, rainbowWithGlitter, confetti, sinelon, juggle, bpm };
 // SimplePatternList gPatterns = { lissajous, rainbow, confetti, bpm };
 SimplePatternList gPatterns = {};
 uint8_t gCurrentPatternNumber = 0;  // Index number of which pattern is current
 uint8_t gHue = 0;                   // rotating "base color" used by many of the patterns
+
+// LED Globals
+CRGB leds[NUM_LEDS];  // array that will hold LED values
 CRGBPalette16 curr_palette;
 CRGBPalette16 target_palette;
 double color_index = 0;
@@ -97,8 +96,6 @@ uint16_t full_art[64][64] = {0};
 
 // Globals for palette art
 uint16_t palette_art[16][16] = {0};
-const uint8_t MEAN_CUT_DEPTH = 4;
-const uint8_t PALETTE_ENTRIES = 1 << MEAN_CUT_DEPTH;
 uint8_t palette_results[PALETTE_ENTRIES][3] = {0};
 CRGB palette_crgb[PALETTE_ENTRIES];
 
@@ -143,10 +140,6 @@ DEFINE_GRADIENT_PALETTE(Sunset_Real_gp){
 // Servo Globals
 Servo myservo;
 
-// Button Globals
-// Button button_up = Button(PIN_BUTTON_UP);
-// Button button_down = Button(PIN_BUTTON_DOWN);
-
 void setup() {
     pinMode(PIN_LED_STATUS, OUTPUT);
     pinMode(PIN_BUTTON_LED, OUTPUT);
@@ -168,7 +161,7 @@ void setup() {
 
     // Servo Setup
     Serial.print("Setting up servo\n");
-    myservo.write(SERVO_BLUR_POS);  // Set servo zero position prior to attaching in order to mitigate power-on glitch
+    myservo.write(SERVO_NOISE_POS);  // Set servo zero position prior to attaching in order to mitigate power-on glitch
     myservo.attach(PIN_SERVO, SERVO_MIN_US, SERVO_MAX_US);
     // servo_pos = myservo.read();  // Determine where the servo is -- Note: this will always report 82, regardless of where servo actually is.
     // we will instead always park the servo at the same position prior to sleeping
@@ -287,7 +280,7 @@ void setup() {
 }
 
 void loop() {
-    vTaskDelete(NULL);
+    vTaskDelete(NULL);  // delete setup and loop tasks
 }
 
 void show_leds() {
@@ -320,13 +313,13 @@ void task_display_code(void *parameter) {
     for (;;) {
         // Check for power off
         if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
-            int new_pos = SERVO_BLUR_POS;
+            int new_pos = SERVO_NOISE_POS;
             xQueueSend(q_servo, &new_pos, 0);
 
             xSemaphoreTake(mutex_leds, portMAX_DELAY);
             FastLED.clear(true);
 
-            vTaskDelay(((SERVO_ART_POS - SERVO_BLUR_POS) * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
+            vTaskDelay(((SERVO_ART_POS - SERVO_NOISE_POS) * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
             Serial.println("Switch is high, going to sleep");
             esp_deep_sleep_start();
         }
@@ -380,7 +373,6 @@ void task_display_code(void *parameter) {
                 if (sp.is_art_loaded && sp.is_active) {
                     xSemaphoreTake(mutex_leds, portMAX_DELAY);
 
-                    // display_full_art(rand() % 4, rand() % 4);
                     display_full_art(0, 0);
                     switch (modes.art.get_mode()) {
                         case ART_WITH_ELAPSED: {  // Update the LED indicator at the bottom of the array
@@ -405,7 +397,7 @@ void task_display_code(void *parameter) {
                     int new_pos = SERVO_ART_POS;
                     xQueueSend(q_servo, &new_pos, 0);  // move after we have displayed
                 } else {                               // no art, go blank
-                    int new_pos = SERVO_BLUR_POS;
+                    int new_pos = SERVO_NOISE_POS;
                     xQueueSend(q_servo, &new_pos, 0);  // move before we display
                     FastLED.clear();
                     show_leds();
@@ -413,8 +405,8 @@ void task_display_code(void *parameter) {
                 break;
             }
             case DISPLAY_AUDIO: {
-                int new_pos = SERVO_BLUR_POS;
-                xQueueSend(q_servo, &new_pos, 0);
+                // int new_pos = SERVO_NOISE_POS;  // this moves to the audio function
+                // xQueueSend(q_servo, &new_pos, 0);
 
                 uint8_t done;
                 xQueueReceive(q_audio_done, &done, portMAX_DELAY);
@@ -447,7 +439,7 @@ void task_audio_code(void *parameter) {
 
     // calculate the number of cycles to take to fully blend based on servo move time
     // TODO: is this correct? since this task is not operating at FPS speed
-    int max_blend_count = int((SERVO_CYCLE_TIME_MS / 1000.0 * (SERVO_ART_POS - SERVO_BLUR_POS)) * FPS * 1.25);
+    int max_blend_count = int((SERVO_CYCLE_TIME_MS / 1000.0 * (SERVO_ART_POS - SERVO_NOISE_POS)) * FPS * 1.25);
 
     xQueueReceive(q_mode, &modes, portMAX_DELAY);  // at the start, wait until we get a mode indication
 
@@ -458,7 +450,12 @@ void task_audio_code(void *parameter) {
         q_return = xQueueReceive(q_mode, &modes, 0);  // check if there is a new mode, if not, we just use the last mode
 
         if (modes.display.get_mode() == DISPLAY_AUDIO) {
-            switch (modes.audio.get_mode()) {
+            int audio_mode = modes.audio.get_mode();
+
+            int new_pos = AUDIO_SERVO_POSITIONS[audio_mode];
+            xQueueSend(q_servo, &new_pos, 0);  // move the servo
+
+            switch (audio_mode) {
                 case AUDIO_SNAKE_GRID:
                     audio_display_func = set_leds_sym_snake_grid;
                     break;
@@ -468,9 +465,15 @@ void task_audio_code(void *parameter) {
                 case AUDIO_SCROLLING:
                     audio_display_func = set_leds_scrolling;
                     break;
-                    // case AUDIO_BARS:
-                    //     audio_display_func = set_leds_bars;
-                    //     break;
+                case AUDIO_BARS:
+                    audio_display_func = set_leds_bars;
+                    break;
+                case AUDIO_OUTRUN_BARS:
+                    audio_display_func = set_leds_outrun_bars;
+                    break;
+                default:
+                    audio_display_func = set_leds_noise;
+                    break;
             }
 
             run_audio(&ap);
@@ -484,7 +487,6 @@ void task_audio_code(void *parameter) {
             audio_display_func(&ap);
 
             if (blend_counter <= max_blend_count) {
-                Serial.println("here");
                 for (int i = 0; i < NUM_LEDS; i++) {
                     int blend_factor = int(round(pow(float(blend_counter) / max_blend_count, 2.2) * 255));
                     leds[i] = blend(last_leds[i], leds[i], blend_factor);
@@ -545,14 +547,6 @@ void task_buttons_code(void *parameter) {
         button_fsm.advance();
         button_state = button_fsm.get_state();
 
-        // if (Serial.available() && Serial.read() == 'f') {
-        //     servo_pos += 1;
-        //     move_servo();
-        // }
-        // if (Serial.available() && Serial.read() == 'b') {
-        //     servo_pos -= 1;
-        //     move_servo();
-        // }
         if (button_state == HOLD_TRIGGERED) {  // change modes
             xQueueSend(q_button_to_display, &button_state, 0);
             xQueueSend(q_button_to_audio, &button_state, 0);
@@ -579,34 +573,51 @@ void task_servo_code(void *parameter) {
     BaseType_t q_return;
 
     // Initialize variables
-    curr_pos = SERVO_BLUR_POS;  // this is the default position we should end at on power down
+    curr_pos = SERVO_NOISE_POS;  // this is the default position we should end at on power down
     myservo.write(curr_pos);
 
     target_pos = curr_pos;
 
     for (;;) {
-        q_return = xQueueReceive(q_servo, &target_pos, portMAX_DELAY);  // check if there is a new value in the queue
-        if (q_return == pdTRUE) {
-            if (target_pos > SERVO_MAX_POS) target_pos = SERVO_MAX_POS;
-            if (target_pos < SERVO_MIN_POS) target_pos = SERVO_MIN_POS;
-        }
-
         curr_pos = myservo.read();
-        if (curr_pos != target_pos) {  // only try to move if we are going to a new position
-            Serial.println("Servo starting pos: " + String(curr_pos));
-            if (curr_pos < target_pos) {
-                for (int i = curr_pos; i <= target_pos; i++) {
-                    myservo.write(i);
-                    vTaskDelay(SERVO_CYCLE_TIME_MS / portTICK_RATE_MS);
-                }
-            } else {
-                for (int i = curr_pos; i >= target_pos; i--) {
-                    myservo.write(i);
-                    vTaskDelay(SERVO_CYCLE_TIME_MS / portTICK_RATE_MS);
-                }
+
+#ifdef SERVO_DEBUG
+        if (Serial.available()) {  // if wants manual control, honor it
+            char c = Serial.read();
+            switch (c) {
+                case 'f':
+                    target_pos += 1;
+                    break;
+                case 'b':
+                    target_pos -= 1;
+                    break;
             }
-            Serial.println("Servo ending pos: " + String(target_pos));
         }
+#else
+        q_return = xQueueReceive(q_servo, &target_pos, 0);  // check if there is a new value in the queue
+        if ((q_return == pdTRUE) && (curr_pos != target_pos)) {
+            Serial.print("Current servo pos: ");
+            Serial.println(curr_pos);
+            Serial.print("Requested servo pos: ");
+            Serial.println(target_pos);
+        }
+#endif
+        target_pos = constrain(target_pos, SERVO_MIN_POS, SERVO_MAX_POS);
+
+        // if (curr_pos != target_pos) {  // only try to move if we are going to a new position
+        //     Serial.println("Servo starting pos: " + String(curr_pos));
+        if (curr_pos < target_pos) {
+            // for (int i = curr_pos; i <= target_pos; i++) {
+            myservo.write(curr_pos + 1);
+            //     vTaskDelay(SERVO_CYCLE_TIME_MS / portTICK_RATE_MS);
+            // }
+        } else if (curr_pos > target_pos) {
+            // for (int i = curr_pos; i >= target_pos; i--) {
+            myservo.write(curr_pos - 1);
+            // vTaskDelay(SERVO_CYCLE_TIME_MS / portTICK_RATE_MS);
+        }
+        // }
+        // Serial.println("Servo ending pos: " + String(target_pos));
         vTaskDelay(SERVO_CYCLE_TIME_MS / portTICK_RATE_MS);
     }
     vTaskDelete(NULL);
@@ -725,23 +736,73 @@ void set_leds_noise(AudioProcessor *ap) {
 }
 
 void set_leds_bars(AudioProcessor *ap) {
+    static uint8_t peaks[GRID_W] = {0};
+    static unsigned long counter = 0;
+
     ap->calc_intensity_simple(GRID_W);
 
     for (int bar_x = 0; bar_x < GRID_W; bar_x++) {
-        int max_y = int(round((float(ap->intensity[bar_x]) / 256) * GRID_H));  // scale the intensity by the grid height
+        int max_y = int(round((float(ap->intensity[bar_x]) / 255) * GRID_H));  // scale the intensity by the grid height
+        max_y = constrain(max_y, 0, GRID_H - 1);
 
+        // Move peak up
+        if (max_y > peaks[bar_x]) {
+            peaks[bar_x] = max_y;
+        }
+
+        // Light up or darken each grid element
         for (int bar_y = 0; bar_y < GRID_H; bar_y++) {
-            if (bar_y <= max_y) {
-                leds[grid_to_idx(bar_x, bar_y, false)] = CRGB::Red;  // turn leds red up to the max value
+            if (bar_y < max_y) {
+                int color_index = int(round(float(bar_x) / GRID_W * 255));
+                CRGB color = ColorFromPalette(curr_palette, color_index, 255, curr_blending);
+                leds[grid_to_idx(bar_x, bar_y, false)] = color;
             } else {
-                if (ap->beat_detected) {
-                    leds[grid_to_idx(bar_x, bar_y, false)] = CRGB::DimGray;
-                } else {
-                    leds[grid_to_idx(bar_x, bar_y, false)] = CRGB::Black;
-                }
+                leds[grid_to_idx(bar_x, bar_y, false)] = CRGB::Black;
+            }
+        }
+        leds[grid_to_idx(bar_x, peaks[bar_x], false)] = CRGB::White;  // light up the peak
+
+        old_max_y[bar_x] = max_y;              // update for next frame
+        if (counter % PEAK_DECAY_RATE == 0) {  // every X frames, shift peak down
+            if (peaks[bar_x] > 0) {
+                peaks[bar_x] -= 1;
             }
         }
     }
+    counter++;
+}
+
+void set_leds_outrun_bars(AudioProcessor *ap) {
+    static uint8_t peaks[GRID_W] = {0};
+    static unsigned long counter = 0;
+
+    ap->calc_intensity_simple(GRID_W);
+
+    for (int bar_x = 0; bar_x < GRID_W; bar_x++) {
+        int max_y = int(round((float(ap->intensity[bar_x]) / 255) * GRID_H));  // scale the intensity by the grid height
+        max_y = constrain(max_y, 0, GRID_H - 1);
+
+        // Move peak up
+        if (max_y > peaks[bar_x]) {
+            peaks[bar_x] = max_y;
+        }
+
+        // Only light up the peak
+        for (int bar_y = 0; bar_y < GRID_H; bar_y++) {
+            leds[grid_to_idx(bar_x, bar_y, false)] = CRGB::Black;
+        }
+        int color_index = int(round(float(peaks[bar_x]) / GRID_H * 255));
+        CRGB color = ColorFromPalette(curr_palette, color_index, 255, curr_blending);
+
+        leds[grid_to_idx(bar_x, peaks[bar_x], false)] = color;  // light up the peak
+
+        if (counter % PEAK_DECAY_RATE == 0) {  // every X frames, shift peak down
+            if (peaks[bar_x] > 0) {
+                peaks[bar_x] -= 1;
+            }
+        }
+    }
+    counter++;
 }
 
 void set_leds_sym_snake_grid(AudioProcessor *ap) {
@@ -811,7 +872,7 @@ void set_leds_sym_snake_grid(AudioProcessor *ap) {
 }
 
 void set_leds_scrolling(AudioProcessor *ap) {
-    ap->calc_intensity(GRID_H);
+    ap->calc_intensity_simple(GRID_H);
 
     // Generate an extra wide representation of the colors
     int effective_w = GRID_W * SCROLL_AVG_FACTOR;
@@ -891,8 +952,20 @@ int grid_to_idx(int x, int y, bool start_top_left) {
 }
 
 void display_full_art(uint8_t offset_row, uint8_t offset_col) {
+    // static int counter_static = 0;
+    // static int offset_row_static = 0;
+    // static int offset_col_static = 0;
+
+    // if (counter_static % 10 == 0) {
+    //     offset_row_static = rand() % 4;
+    //     offset_col_static = rand() % 4;
+    // }
+    // counter_static++;
+
     for (int row = 0; row < GRID_H; row++) {
         for (int col = 0; col < GRID_W; col++) {
+            // uint8_t full_row = row * 4 + offset_row_static;
+            // uint8_t full_col = col * 4 + offset_col_static;
             uint8_t full_row = row * 4 + offset_row;
             uint8_t full_col = col * 4 + offset_col;
 

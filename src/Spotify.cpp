@@ -278,41 +278,47 @@ bool Spotify::_get_art() {
         Serial.println("Free heap prior to malloc: " + String(ESP.getFreeHeap()));
         art_data = (uint8_t *)malloc(art_num_bytes * sizeof(*(art_data)));  // dereference the art_data pointer to get the size of each element (uint8_t)
 
-        int len = total;
+        if (art_data == NULL) {
+            Serial.println("Not enough heap for malloc");
+            is_art_loaded = false;
+            ret = false;
+        } else {
+            int len = total;
 
-        // Create buffer for read
-        uint8_t buff[128] = {0};
+            // Create buffer for read
+            uint8_t buff[128] = {0};
 
-        // Get tcp stream
-        WiFiClient *stream = http.getStreamPtr();
+            // Get tcp stream
+            WiFiClient *stream = http.getStreamPtr();
 
-        // Read all data from server
-        while (http.connected() && (len > 0 || len == -1)) {
-            // Get available data size
-            size_t size = stream->available();
+            // Read all data from server
+            while (http.connected() && (len > 0 || len == -1)) {
+                // Get available data size
+                size_t size = stream->available();
 
-            if (size) {
-                // Read up to 128 bytes
-                int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
+                if (size) {
+                    // Read up to 128 bytes
+                    int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
 
-                // Write it to file
-                // f.write(buff, c);
+                    // Write it to file
+                    // f.write(buff, c);
 
-                // Write it to memory, (curr_art_size - len) is the number of bytes already written
-                memcpy(&(art_data)[art_num_bytes - len], buff, c);
+                    // Write it to memory, (curr_art_size - len) is the number of bytes already written
+                    memcpy(&(art_data)[art_num_bytes - len], buff, c);
 
-                // Calculate remaining bytes
-                if (len > 0) {
-                    len -= c;
+                    // Calculate remaining bytes
+                    if (len > 0) {
+                        len -= c;
+                    }
                 }
+                yield();
             }
-            yield();
+            // Serial.println();
+            // Serial.print("[HTTP] connection closed or file end.\n");
+            is_art_loaded = true;
+            Serial.println(String(millis() - start_ms) + "ms to download art");
+            ret = true;
         }
-        // Serial.println();
-        // Serial.print("[HTTP] connection closed or file end.\n");
-        is_art_loaded = true;
-        Serial.println(String(millis() - start_ms) + "ms to download art");
-        ret = true;
     }
     // f.close();
     else {

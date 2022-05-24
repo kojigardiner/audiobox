@@ -2,6 +2,8 @@
 #define CONSTANTS_H
 
 /*** Defines ***/
+//#define SERVO_DEBUG  // comment out to have servo work automatically
+
 #define PIN_LED_CONTROL 12  // LED strip control GPIO
 #define PIN_LED_STATUS 2    // Status LED on HiLetgo board
 #define PIN_BUTTON_MODE 14
@@ -40,6 +42,24 @@
 #define DISPLAY_ART_DURATION_MS 10000
 #define DISPLAY_AUDIO_DURATION_MS 60000
 
+// Mean Cut
+#define MEAN_CUT_DEPTH 4
+#define PALETTE_ENTRIES (1 << MEAN_CUT_DEPTH)
+
+// Servo defines
+#define SERVO_MIN_US 700
+#define SERVO_MAX_US 2400
+#define SERVO_MAX_POS 160
+#define SERVO_MIN_POS 30
+
+#define SERVO_NOISE_POS 70
+#define SERVO_ART_POS 120
+#define SERVO_BARS_POS 145
+#define SERVO_GRID_POS 90
+
+#define SERVO_BUTTON_HOLD_DELAY_MS 50
+#define SERVO_CYCLE_TIME_MS 50
+
 // Mode enums/structs
 enum DisplayMode {
     DISPLAY_ART,
@@ -56,10 +76,12 @@ enum AudioMode {
     AUDIO_NOISE,
     AUDIO_SNAKE_GRID,
     AUDIO_SCROLLING,
-    // AUDIO_BARS,
+    AUDIO_BARS,
+    AUDIO_OUTRUN_BARS,
     AUDIO_MODES_MAX
 };
 const unsigned long DISPLAY_DURATIONS[DISPLAY_MODES_MAX] = {DISPLAY_ART_DURATION_MS, DISPLAY_AUDIO_DURATION_MS};
+const uint8_t AUDIO_SERVO_POSITIONS[AUDIO_MODES_MAX] = {SERVO_NOISE_POS, SERVO_GRID_POS, SERVO_GRID_POS, SERVO_BARS_POS, SERVO_BARS_POS};
 
 // Specific to audio volume control
 #define VOL_FACTOR 10                        // empirically found that RMS of signal needs x10 to match RMS of FFT
@@ -75,28 +97,17 @@ const unsigned long DISPLAY_DURATIONS[DISPLAY_MODES_MAX] = {DISPLAY_ART_DURATION
 #define NUM_AUDIO_BANDS 16
 
 // Specific to audio LED
-#define BRIGHT_LEVELS 255                   // number of levels of brightness to use
-#define MIN_BRIGHT_FADE 0                   // Cut-off as we fade (this is a 5 in the gamma table)
-#define MIN_BRIGHT_UPDATE 32                // Cut-off for new values (this is a 5 in the gamma table)
-#define FADE BRIGHT_LEVELS / 32 * 30 / FPS  // Rate at which LEDs will fade out (remember, gamma will be applied so fall off will seem faster).                                                           // Scale by FPS so that the fade speed is always the same.
-#define LED_SMOOTHING 0.75 * 30 / FPS       // smoothing factor for updating LEDs
-#define FFT_SCALE_POWER 1.5                 // power by which to scale the FFT for LED intensity
-#define PALETTE_CHANGE_RATE 24              // default from https://gist.github.com/kriegsman/1f7ccbbfa492a73c015e
+#define BRIGHT_LEVELS 255                     // number of levels of brightness to use
+#define MIN_BRIGHT_FADE 0                     // Cut-off as we fade (this is a 5 in the gamma table)
+#define MIN_BRIGHT_UPDATE 32                  // Cut-off for new values (this is a 5 in the gamma table)
+#define FADE BRIGHT_LEVELS / 32 * 30 / FPS    // Rate at which LEDs will fade out (remember, gamma will be applied so fall off will seem faster).                                                           // Scale by FPS so that the fade speed is always the same.
+#define LED_SMOOTHING 0.75 * 30 / FPS         // smoothing factor for updating LEDs
+#define FFT_SCALE_POWER 1.5                   // power by which to scale the FFT for LED intensity
+#define PALETTE_CHANGE_RATE 24                // default from https://gist.github.com/kriegsman/1f7ccbbfa492a73c015e
+#define PEAK_DECAY_RATE int(round(FPS / 16))  // rate at which peak decays on VU meter
 
 // Specific to scrolling grid
 #define SCROLL_AVG_FACTOR int(4 * 60 / FPS)  // number of frames to average to create a single vertical slice that scrolls
-
-// Servo defines
-#define SERVO_MIN_US 700
-#define SERVO_MAX_US 2400
-#define SERVO_MAX_POS 160
-#define SERVO_MIN_POS 30
-
-#define SERVO_BLUR_POS 50
-#define SERVO_ART_POS 75
-
-#define SERVO_BUTTON_HOLD_DELAY_MS 50
-#define SERVO_CYCLE_TIME_MS 50
 
 // Macros
 #define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))

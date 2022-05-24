@@ -462,7 +462,10 @@ void AudioProcessor::calc_intensity_simple(int length) {
     // }
 
     for (int i = 0; i < length; i++) {
-        intensity[i] = int(round(_fft_interp[i] * 16));
+        intensity[i] = int(round(_fft_interp[i] * 16));                                            // TODO: 4 is a fudge factor here to prevent values from peaking
+        intensity[i] = _last_intensity[i] * (1 - LED_SMOOTHING) + intensity[i] * (LED_SMOOTHING);  // apply a smoothing parameter
+
+        _last_intensity[i] = intensity[i];
     }
 }
 
