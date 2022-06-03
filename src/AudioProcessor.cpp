@@ -285,6 +285,20 @@ void AudioProcessor::_postprocess_fft() {
     double eq_mult, a_weighting_mult;
     int curr_bin, mapped_bin;
 
+#ifdef FFT_WHITE_NOISE_CAL
+    static int counter = 0;
+    static const int cal_samples = 10 * FFTS_PER_SEC;
+    static double cum_fft[FFT_SAMPLES / 2] = {0};
+
+    if (counter == cal_samples) {
+        print_double_array(cum_fft, FFT_SAMPLES / 2);
+        counter = 0;
+        memset(cum_fft, 0, sizeof(cum_fft));
+    } else {
+        counter++;
+    }
+#endif
+
     _clear_fft_bin();  // clear out the fft_bin array as it has stale values
 
     for (int i = 0; i < FFT_SAMPLES / 2; i++) {
@@ -293,6 +307,10 @@ void AudioProcessor::_postprocess_fft() {
         if (_v_real[i] < 0) {
             _v_real[i] = 0;
         }
+
+#ifdef FFT_WHITE_NOISE_CAL
+        cum_fft[i] += (_v_real[i] / cal_samples);
+#endif
 
         if (_WHITE_NOISE_EQ) {  // apply white noise eq
             eq_mult = 255.0 / double(FFT_EQ[i]);

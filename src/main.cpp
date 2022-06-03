@@ -29,6 +29,8 @@ void set_leds_sym_snake_grid(AudioProcessor *ap);
 void set_leds_scrolling(AudioProcessor *ap);
 void set_leds_bars(AudioProcessor *ap);
 void set_leds_outrun_bars(AudioProcessor *ap);
+void set_leds_center_bars(AudioProcessor *ap);
+void set_leds_waterfall(AudioProcessor *ap);
 void set_leds_noise(AudioProcessor *ap);
 
 /*** Globals ***/
@@ -303,8 +305,9 @@ void task_display_code(void *parameter) {
     int counter = 0;
 
     struct Modes modes;
+    // initial modes
     modes.display = Mode(DISPLAY_ART, DISPLAY_MODES_MAX, DISPLAY_DURATIONS);
-    modes.art = Mode(ART_WITH_ELAPSED, ART_MODES_MAX);
+    modes.art = Mode(ART_WITHOUT_ELAPSED, ART_MODES_MAX);
     modes.audio = Mode(AUDIO_NOISE, AUDIO_MODES_MAX);
 
     // Initialise the xLastWakeTime variable with the current time.
@@ -360,7 +363,7 @@ void task_display_code(void *parameter) {
             } else {
                 modes.display.set_mode(DISPLAY_ART);  // will be blank when there's no art
             }
-            if (sp.track_changed) {
+            if (sp.art_changed) {
                 modes.display.set_mode(DISPLAY_ART);  // show art on track change
             }
         }
@@ -470,6 +473,12 @@ void task_audio_code(void *parameter) {
                     break;
                 case AUDIO_OUTRUN_BARS:
                     audio_display_func = set_leds_outrun_bars;
+                    break;
+                case AUDIO_CENTER_BARS:
+                    audio_display_func = set_leds_center_bars;
+                    break;
+                case AUDIO_WATERFALL:
+                    audio_display_func = set_leds_waterfall;
                     break;
                 default:
                     audio_display_func = set_leds_noise;
@@ -762,7 +771,6 @@ void set_leds_bars(AudioProcessor *ap) {
         }
         leds[grid_to_idx(bar_x, peaks[bar_x], false)] = CRGB::White;  // light up the peak
 
-        old_max_y[bar_x] = max_y;              // update for next frame
         if (counter % PEAK_DECAY_RATE == 0) {  // every X frames, shift peak down
             if (peaks[bar_x] > 0) {
                 peaks[bar_x] -= 1;
@@ -803,6 +811,50 @@ void set_leds_outrun_bars(AudioProcessor *ap) {
         }
     }
     counter++;
+}
+
+void set_leds_center_bars(AudioProcessor *ap) {
+    ap->calc_intensity_simple(GRID_W);
+
+    for (int bar_x = 0; bar_x < GRID_W; bar_x++) {
+        int max_y = int(round((float(ap->intensity[bar_x]) / 255) * GRID_H));  // scale the intensity by the grid height
+        max_y = constrain(max_y, 0, GRID_H - 1);
+
+        if (max_y % 2 == 0) max_y--;  // since we are only going to display half the bars, make sure we have an odd value
+
+        int y_start = ((GRID_H - max_y) / 2);
+        for (int bar_y = 0; bar_y < GRID_H; bar_y++) {
+            if (bar_y >= y_start && bar_y <= (y_start + max_y)) {
+                int color_index = constrain((bar_y - y_start) * (255 / max_y), 0, 255);
+                CRGB color = ColorFromPalette(curr_palette, color_index, 255, curr_blending);
+
+                leds[grid_to_idx(bar_x, bar_y, false)] = color;
+            } else {
+                leds[grid_to_idx(bar_x, bar_y, false)] = CRGB::Black;
+            }
+        }
+    }
+}
+
+void set_leds_waterfall(AudioProcessor *ap) {
+    ap->calc_intensity_simple(GRID_W);
+
+    for (int bar_y = 0; bar_y < GRID_H; bar_y++) {
+        // Draw right line
+        // CRGB color = ColorFromPalette((CRGBPalette16)Sunset_Real_gp, map(ap->intensity[bar_y], 0, 255, 255, 0), 255, curr_blending);
+        leds[grid_to_idx(GRID_W - 1, bar_y, false)] = CHSV(constrain(map(ap->intensity[bar_y], 0, 255, 160, 0), 0, 160), 255, 255);
+
+        // Move screen left starting at 2nd row from left
+        if (bar_y == GRID_H - 1) {  // do this on the last cycle
+            for (int bar_x = 1; bar_x < GRID_W; bar_x++) {
+                for (int y = 0; y < GRID_H; y++) {
+                    int pixelIndexX = grid_to_idx(bar_x - 1, y, false);
+                    int pixelIndex = grid_to_idx(bar_x, y, false);
+                    leds[pixelIndexX] = leds[pixelIndex];
+                }
+            }
+        }
+    }
 }
 
 void set_leds_sym_snake_grid(AudioProcessor *ap) {

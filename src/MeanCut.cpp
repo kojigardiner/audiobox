@@ -13,6 +13,7 @@ void rgb565_to_rgb888(uint16_t rgb565_val, uint8_t *rgb888_arr) {
     rgb888_arr[2] = int(round((float(b5) / 31) * 255));
 }
 
+// Determine which color channel has the largest max/min difference
 int get_longest_dim(uint16_t *rgb565_arr, uint32_t length) {
     uint8_t rgb888_arr[3];
     uint8_t rgb_max_arr[3] = {0, 0, 0};
@@ -54,6 +55,7 @@ int get_longest_dim(uint16_t *rgb565_arr, uint32_t length) {
     return -1;  // should never get here
 }
 
+// Sorting function for red color channel
 bool red_is_larger(uint16_t first, uint16_t second) {
     uint8_t rgb888_first_arr[3];
     uint8_t rgb888_second_arr[3];
@@ -69,6 +71,7 @@ bool red_is_larger(uint16_t first, uint16_t second) {
     }
 }
 
+// Sorting function for green color channel
 bool green_is_larger(uint16_t first, uint16_t second) {
     uint8_t rgb888_first_arr[3];
     uint8_t rgb888_second_arr[3];
@@ -84,6 +87,7 @@ bool green_is_larger(uint16_t first, uint16_t second) {
     }
 }
 
+// Sorting function for blue color channel
 bool blue_is_larger(uint16_t first, uint16_t second) {
     uint8_t rgb888_first_arr[3];
     uint8_t rgb888_second_arr[3];
@@ -99,11 +103,54 @@ bool blue_is_larger(uint16_t first, uint16_t second) {
     }
 }
 
+// Sorting function for hue
+bool hue_is_larger(rgb888_t first, rgb888_t second) {
+    uint8_t first_hue = rgb888_to_hue(first);
+    uint8_t second_hue = rgb888_to_hue(second);
+
+    if (first_hue > second_hue) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+// Calc hue
+uint8_t rgb888_to_hue(rgb888_t rgb888) {
+    // normalize
+    float r_norm = rgb888.r / 255.0;
+    float g_norm = rgb888.g / 255.0;
+    float b_norm = rgb888.b / 255.0;
+
+    float x_max = max(max(r_norm, g_norm), b_norm);
+    float x_min = min(min(r_norm, g_norm), b_norm);
+    float chroma = x_max - x_min;
+    float value = x_max;
+
+    float hue = 0;
+
+    if (chroma == 0) {
+        hue = 0;
+    } else if (value == r_norm) {
+        hue = 60 * (0 + (g_norm - b_norm) / chroma);
+    } else if (value == g_norm) {
+        hue = 60 * (2 + (b_norm - r_norm) / chroma);
+    } else if (value == b_norm) {
+        hue = 60 * (4 + (r_norm - g_norm) / chroma);
+    } else {
+        // should never get here
+        Serial.println("Error in hue computation");
+    }
+
+    return uint8_t(round(hue / 360.0 * 255));
+}
+
 // Using Rec.709 Y conversion
 uint8_t rgb888_to_luma(uint8_t *rgb888_arr) {
     return 0.2126 * rgb888_arr[0] + 0.7152 * rgb888_arr[1] + 0.0722 * rgb888_arr[2];
 }
 
+// Reverse sorting function for luma
 bool luma_is_smaller(uint16_t first, uint16_t second) {
     uint8_t rgb888_first_arr[3];
     uint8_t rgb888_second_arr[3];
@@ -210,12 +257,26 @@ uint32_t get_mean_idx(uint16_t *rgb565_arr, uint32_t length, uint8_t channel) {
 
 // Prep the data before calling the recursive function that will actually compute the results
 void mean_cut(uint16_t *rgb565_arr, uint32_t length, uint8_t depth, uint8_t *results) {
-    uint32_t new_length = length_above_luma_thresh(rgb565_arr, length, 40);
+    uint32_t new_length = length_above_luma_thresh(rgb565_arr, length, LUMA_THRESH);  // sort by luma and return how many values are above the threshold
 
     mean_cut_recursive(rgb565_arr, new_length, depth, results);
+
+    // cast to rgb888_t struct type to enable accessing rgb elements in sorting function
+    sortArray((rgb888_t *)results, 1 << depth, hue_is_larger);  // sort by increasing hue
+
+    // Serial.println("Hue values:");
+    // for (int i = 0; i < (1 << depth); i++) {
+    //     rgb888_t rgb;
+    //     rgb.r = results[i * 3];
+    //     rgb.g = results[i * 3 + 1];
+    //     rgb.b = results[i * 3 + 2];
+    //     uint8_t hue = rgb888_to_hue(rgb);
+    //     Serial.println(hue);
+    // }
 }
 
 // Recursive function that actually computes the results
+// Results will hold an array of 8-bit RGB triplets (e.g. {R1, G1, B1, R2, G2, B2, R3, G3, B3, ...})
 void mean_cut_recursive(uint16_t *rgb565_arr, uint32_t length, uint8_t depth, uint8_t *results) {
     if ((depth == 0) || (length == 0)) {  // if length is 0 we will get black
         // uint8_t mean_rgb888_arr[3];

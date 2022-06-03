@@ -13,7 +13,7 @@ class AudioProcessor {
     // Constructors
     AudioProcessor();
     ~AudioProcessor();
-    AudioProcessor(bool a_weighting_eq, bool white_noise_eq, bool perceptual_binning, bool volume_scaling);
+    AudioProcessor(bool white_noise_eq, bool a_weighting_eq, bool perceptual_binning, bool volume_scaling);
 
     // Methods
     void get_audio_samples();
