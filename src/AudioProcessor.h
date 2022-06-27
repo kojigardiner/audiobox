@@ -21,7 +21,7 @@ class AudioProcessor {
     void update_volume();
     void run_fft();
     void calc_intensity(int length);
-    void calc_intensity_simple(int length);
+    void calc_intensity_simple();
     void print_double_array(double *arr, int len);
 
     // Variables for LEDs

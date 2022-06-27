@@ -438,8 +438,8 @@ void AudioProcessor::calc_intensity(int length) {
     }
 }
 
-// Simple version that does no scaling or fading
-void AudioProcessor::calc_intensity_simple(int length) {
+// Simple version that does no scaling or fading, and provides an intensity value for each column in the grid
+void AudioProcessor::calc_intensity_simple() {
     _clear_fft_bin();
 
     // bin down using the audio bands
@@ -454,32 +454,9 @@ void AudioProcessor::calc_intensity_simple(int length) {
     }
 
     // interpolate back up to the length desired.
-    _interpolate_fft(NUM_AUDIO_BANDS, length);
+    _interpolate_fft(NUM_AUDIO_BANDS, GRID_W);
 
-    // // Do the calculation we would normally do
-    // for (int i = 0; i < length; i++) {
-    //   if (_fft_interp[i] < 0) {
-    //     _fft_interp[i] = 0;
-    //   }
-
-    //   double constrain_val = constrain(_fft_interp[i], 0, 1);                  // cap the range at [0 1]
-    //   double pow_val = pow(constrain_val, FFT_SCALE_POWER) * _max_fft_val;          // raise to the power to increase sensitivity, multiply by max value to increase resolution
-    //   int map_val = map(pow_val, 0, _max_fft_val, 0, BRIGHT_LEVELS);                // scale this into discrete LED brightness levels
-
-    //   intensity[i] -= FADE * 20;            // fade first
-
-    //   if ((map_val >= intensity[i]) && (curr_volume > VOL_THRESH) && (map_val >= MIN_BRIGHT_UPDATE)) {   // if the FFT value is brighter AND our volume is loud enough that we trust the data AND it is brighter than our min thresh, update
-    //     intensity[i] = map_val;
-    //     intensity[i] = _last_intensity[i] * (1 - LED_SMOOTHING) + intensity[i] * (LED_SMOOTHING); // apply a smoothing parameter
-    //   }
-    //   if (intensity[i] < MIN_BRIGHT_FADE) {  // if less than the min value, floor to zero to reduce flicker
-    //     intensity[i] = 0;
-    //   }
-
-    //   _last_intensity[i] = intensity[i]; // update the previous intensity value
-    // }
-
-    for (int i = 0; i < length; i++) {
+    for (int i = 0; i < GRID_W; i++) {
         intensity[i] = int(round(_fft_interp[i] * 16));                                            // TODO: 4 is a fudge factor here to prevent values from peaking
         intensity[i] = _last_intensity[i] * (1 - LED_SMOOTHING) + intensity[i] * (LED_SMOOTHING);  // apply a smoothing parameter
 
