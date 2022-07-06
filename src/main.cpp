@@ -360,6 +360,7 @@ void task_audio_code(void *parameter) {
     // Initialise the xLastWakeTime variable with the current time.
     xLastWakeTime = xTaskGetTickCount();
 
+    int last_audio_mode = -1;
     for (;;) {
         q_return = xQueueReceive(q_mode, &modes, 0);  // check if there is a new mode, if not, we just use the last mode
 
@@ -377,7 +378,12 @@ void task_audio_code(void *parameter) {
                 memcpy(last_leds, lp.leds, sizeof(CRGB) * NUM_LEDS);
             }
 
-            lp.display_audio(audio_mode, ap.intensity);
+            if (last_audio_mode != audio_mode) {
+                lp.set_audio_pattern(audio_mode);
+            }
+            last_audio_mode = audio_mode;
+
+            lp.display_audio(ap.intensity);
 
             if (blend_counter <= max_blend_count) {
                 for (int i = 0; i < NUM_LEDS; i++) {
