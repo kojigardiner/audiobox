@@ -13,7 +13,7 @@ class LEDPanel;
 class LEDAudioPattern {
    public:
     LEDAudioPattern(LEDPanel *lp);
-    ~LEDAudioPattern();
+    virtual ~LEDAudioPattern();
 
     virtual void set_leds(int *intensity) = 0;  // abstract method to be implemented by all subclasses
 

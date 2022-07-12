@@ -383,7 +383,7 @@ void task_audio_code(void *parameter) {
             }
             last_audio_mode = audio_mode;
 
-            lp.display_audio(ap.intensity);
+            lp.display_audio(ap.get_intensity());
 
             if (blend_counter <= max_blend_count) {
                 for (int i = 0; i < NUM_LEDS; i++) {

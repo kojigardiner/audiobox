@@ -10,48 +10,67 @@
 
 class AudioProcessor {
    public:
-    // Constructors
-    AudioProcessor();
-    ~AudioProcessor();
+    // Constructor
     AudioProcessor(bool white_noise_eq, bool a_weighting_eq, bool perceptual_binning, bool volume_scaling);
+    ~AudioProcessor();
 
     // Methods
+
+    // Collect audio samples from I2S sequentially
     void get_audio_samples();
+
+    // Collect audio samples from I2S, in gapless mode with 50% overlap between successive calls
     void get_audio_samples_gapless();
+
+    // Update volume variable using latest audio data
     void update_volume();
+
+    // Perform FFT calculations and associated post-processing
     void run_fft();
+
+    // Calculate intensity values based on FFT, scaled to provided array length
     void calc_intensity(int length);
+
+    // Calculate "simple" version of intensity based on FFT and audio bands
     void calc_intensity_simple();
+
+    // Helper function to print array values to serial
     void print_double_array(double *arr, int len);
 
-    // Variables for LEDs
-    int intensity[NUM_LEDS] = {0};  // holds the brightness values to set the LEDs to
-
-    // Variables for volume
-    double curr_volume = 0;      // store instantaneous volume
-    double avg_volume = 0;       // running average of volumes
-    double avg_peak_volume = 0;  // running average of peak volumes
-
-    // Variables for audio FFT bins
-    float center_bins[NUM_AUDIO_BANDS] = {0};
-    float bin_freqs[NUM_AUDIO_BANDS] = {0};
-    float low_bins[NUM_AUDIO_BANDS] = {0};
-    float high_bins[NUM_AUDIO_BANDS] = {0};
-
-    bool audio_first_loop = true;
-    bool beat_detected = false;
+    // Return pointer to intensity array
+    int *get_intensity();
 
    private:
     // Methods
+
+    // Init all private variables
     void _init_variables();
+
+    // Init I2S driver in ESP32
     void _i2s_init();
+
+    // Setup audio bins for use with calc_intensity_simple
     void _setup_audio_bins();
+
+    // Set fft_bin array to zeros
     void _clear_fft_bin();
+
+    // Calculate rms value for given array
     double _calc_rms(float *arr, int len);
+
+    // Claculate rms value scaled by sqrt(2) / 2
     double _calc_rms_scaled(float *arr, int len);
+
+    // Perform FFT on audio samples
     void _perform_fft();
+
+    // Postprocess the FFT results to remove noise and apply weighting/binning as set during initialization
     void _postprocess_fft();
+
+    // Interpolate FFT results to a new array size
     void _interpolate_fft(int old_length, int new_length);
+
+    // Detect a beat based on ongoing audio samples
     void _detect_beat();
 
     // Variables for FFT
@@ -80,6 +99,23 @@ class AudioProcessor {
 
     // Other variables
     double _max_fft_val = 0;  // this is used to normalize the FFT outputs to [0 1]. set it lower to make the system "more sensitive". is auto-adjusted based on volume but empirically 1500 works pretty well.
+
+    // Variables for LEDs
+    int _intensity[NUM_LEDS] = {0};  // holds the brightness values to set the LEDs to
+
+    // Variables for volume
+    double _curr_volume = 0;      // store instantaneous volume
+    double _avg_volume = 0;       // running average of volumes
+    double _avg_peak_volume = 0;  // running average of peak volumes
+
+    // Variables for audio FFT bins
+    float _center_bins[NUM_AUDIO_BANDS] = {0};
+    float _bin_freqs[NUM_AUDIO_BANDS] = {0};
+    float _low_bins[NUM_AUDIO_BANDS] = {0};
+    float _high_bins[NUM_AUDIO_BANDS] = {0};
+
+    bool _audio_first_loop = true;
+    bool _beat_detected = false;
 };
 
 #endif  // _AUDIOPROCESSOR_H

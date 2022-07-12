@@ -1,13 +1,6 @@
 #include "AudioProcessor.h"
 
-// Default constructor
-AudioProcessor::AudioProcessor() {
-    _i2s_init();
-    _init_variables();
-    _real_fft_plan = fft_init(FFT_SAMPLES, FFT_REAL, FFT_FORWARD, _v_real, _v_imag);
-}
-
-// Alternate constructor to define FFT post-processing
+// Constructor to define FFT post-processing
 AudioProcessor::AudioProcessor(bool white_noise_eq, bool a_weighting_eq, bool perceptual_binning, bool volume_scaling) {
     _WHITE_NOISE_EQ = white_noise_eq;
     _A_WEIGHTING_EQ = a_weighting_eq;
@@ -60,7 +53,7 @@ void AudioProcessor::_init_variables() {
     _setup_audio_bins();
 
     // Initialize arrays
-    memset(intensity, 0, sizeof(intensity));
+    memset(_intensity, 0, sizeof(_intensity));
 
     memset(_last_intensity, 0, sizeof(_last_intensity));
     memset(_fft_interp, 0, sizeof(_fft_interp));
@@ -72,10 +65,10 @@ void AudioProcessor::_init_variables() {
 
     _max_fft_val = 0;
 
-    audio_first_loop = true;
-    curr_volume = 0;
-    avg_volume = 0;
-    avg_peak_volume = 0;
+    _audio_first_loop = true;
+    _curr_volume = 0;
+    _avg_volume = 0;
+    _avg_peak_volume = 0;
 
     Serial.print("Audio processor variables initialized\n");
 }
@@ -91,12 +84,12 @@ void AudioProcessor::get_audio_samples() {
     int samples_read = 0;
 
     // First audio samples are junk, so prime the system then delay
-    if (audio_first_loop) {
+    if (_audio_first_loop) {
         i2s_read(I2S_PORT, (void *)buffer, sizeof(buffer), &bytes_read, portMAX_DELAY);  // no timeout
         delay(1000);
     }
     i2s_read(I2S_PORT, (void *)buffer, sizeof(buffer), &bytes_read, portMAX_DELAY);  // no timeout
-    audio_first_loop = false;
+    _audio_first_loop = false;
 
     // Check that we got the correct number of samples
     samples_read = int(int(bytes_read) / sizeof(buffer[0]));  // since a sample is 32 bits (4 bytes)
@@ -134,12 +127,12 @@ void AudioProcessor::get_audio_samples_gapless() {
     int samples_read = 0;
 
     // First audio samples are junk, so prime the system then delay
-    if (audio_first_loop) {
+    if (_audio_first_loop) {
         i2s_read(I2S_PORT, (void *)buffer, sizeof(buffer), &bytes_read, portMAX_DELAY);  // no timeout
         delay(1000);
     }
     i2s_read(I2S_PORT, (void *)buffer, sizeof(buffer), &bytes_read, portMAX_DELAY);  // no timeout
-    audio_first_loop = false;
+    _audio_first_loop = false;
 
     // Check that we got the correct number of samples
     samples_read = int(int(bytes_read) / sizeof(buffer[0]));  // since a sample is 32 bits (4 bytes)
@@ -169,20 +162,20 @@ void AudioProcessor::get_audio_samples_gapless() {
 void AudioProcessor::update_volume() {
     // Use exponential moving average, simpler than creating an actual moving avg array
     // curr_volume = _calc_rms(_v_real, FFT_SAMPLES);
-    curr_volume = _calc_rms_scaled(_v_real, FFT_SAMPLES);
+    _curr_volume = _calc_rms_scaled(_v_real, FFT_SAMPLES);
 
-    if (audio_first_loop) {  // the first time through the loop, we have no history, so set the avg volume to the curr volume
-        avg_volume = curr_volume;
+    if (_audio_first_loop) {  // the first time through the loop, we have no history, so set the avg volume to the curr volume
+        _avg_volume = _curr_volume;
     } else {
-        avg_volume = (VOL_AVG_SCALE * curr_volume) + (avg_volume * (1 - VOL_AVG_SCALE));
+        _avg_volume = (VOL_AVG_SCALE * _curr_volume) + (_avg_volume * (1 - VOL_AVG_SCALE));
     }
 
-    if (curr_volume > VOL_PEAK_FACTOR * avg_volume) {  // we have a peak
-        avg_peak_volume = (VOL_AVG_SCALE * curr_volume) + (avg_peak_volume * (1 - VOL_AVG_SCALE));
+    if (_curr_volume > VOL_PEAK_FACTOR * _avg_volume) {  // we have a peak
+        _avg_peak_volume = (VOL_AVG_SCALE * _curr_volume) + (_avg_peak_volume * (1 - VOL_AVG_SCALE));
     }
 
     if (_VOLUME_SCALING) {
-        _max_fft_val = avg_volume * VOL_MULT;
+        _max_fft_val = _avg_volume * VOL_MULT;
         // if (_max_fft_val < 1.0) {
         //   _max_fft_val = 1.0;        // since max_val is a divider, avoid less than 1
         // }
@@ -234,22 +227,22 @@ void AudioProcessor::_setup_audio_bins() {
     Serial.print(String(freq_mult_per_band) + "," + String(nyquist_freq) + "," + String(bin_width) + "," + String(nbins) + "\n");
 
     for (int band = 0; band < NUM_AUDIO_BANDS; band++) {
-        bin_freqs[band] = lowest_freq * pow(freq_mult_per_band, band);
-        center_bins[band] = bin_freqs[band] / bin_width;
+        _bin_freqs[band] = lowest_freq * pow(freq_mult_per_band, band);
+        _center_bins[band] = _bin_freqs[band] / bin_width;
     }
 
     for (int band = 0; band < NUM_AUDIO_BANDS - 1; band++) {
-        high_bins[band] = (center_bins[band + 1] - center_bins[band]) / 2.0 + center_bins[band];
+        _high_bins[band] = (_center_bins[band + 1] - _center_bins[band]) / 2.0 + _center_bins[band];
     }
-    high_bins[NUM_AUDIO_BANDS - 1] = nbins;
+    _high_bins[NUM_AUDIO_BANDS - 1] = nbins;
 
     for (int band = NUM_AUDIO_BANDS - 1; band >= 1; band--) {
-        low_bins[band] = high_bins[band - 1];
+        _low_bins[band] = _high_bins[band - 1];
     }
-    low_bins[0] = 0;
+    _low_bins[0] = 0;
 
     for (int i = 0; i < NUM_AUDIO_BANDS; i++) {
-        Serial.print(String(int(round(bin_freqs[i]))) + "," + String(int(round(low_bins[i]))) + "," + String(int(round(high_bins[i]))) + "\n");
+        Serial.print(String(int(round(_bin_freqs[i]))) + "," + String(int(round(_low_bins[i]))) + "," + String(int(round(_high_bins[i]))) + "\n");
     }
 }
 
@@ -394,11 +387,11 @@ void AudioProcessor::_detect_beat() {
     double _thresh_bass = _avg_bass + 3 * sqrt(_var_bass);
 
     // must be loud enough, over thresh, and not too soon after the latest beat
-    if (curr_bass > _thresh_bass && (20 * log10(curr_volume)) > VOL_THRESH_DB && (millis() - _last_beat_ms) > 200) {
-        beat_detected = true;
+    if (curr_bass > _thresh_bass && (20 * log10(_curr_volume)) > VOL_THRESH_DB && (millis() - _last_beat_ms) > 200) {
+        _beat_detected = true;
         _last_beat_ms = millis();
     } else {
-        beat_detected = false;
+        _beat_detected = false;
     }
 
     // Serial.print(String(20*log10(curr_volume)) + "," + String(20*log10(avg_volume)) + "," + String(curr_bass) + "," + String(_avg_bass) + "," + String(_thresh_bass) + "," + String(curr_bass / bass_max) + "\n");
@@ -423,18 +416,18 @@ void AudioProcessor::calc_intensity(int length) {
         // Serial.print(",");
         // Serial.println(map_val);
 
-        intensity[i] -= FADE;  // fade first
-        if (intensity[i] < 0) intensity[i] = 0;
+        _intensity[i] -= FADE;  // fade first
+        if (_intensity[i] < 0) _intensity[i] = 0;
 
-        if ((map_val >= intensity[i]) && (20 * log10(avg_volume) > VOL_THRESH_DB) && (map_val >= MIN_BRIGHT_UPDATE)) {  // if the FFT value is brighter AND our volume is loud enough that we trust the data AND it is brighter than our min thresh, update
-            intensity[i] = map_val;
-            intensity[i] = _last_intensity[i] * (1 - LED_SMOOTHING) + intensity[i] * (LED_SMOOTHING);  // apply a smoothing parameter
+        if ((map_val >= _intensity[i]) && (20 * log10(_avg_volume) > VOL_THRESH_DB) && (map_val >= MIN_BRIGHT_UPDATE)) {  // if the FFT value is brighter AND our volume is loud enough that we trust the data AND it is brighter than our min thresh, update
+            _intensity[i] = map_val;
+            _intensity[i] = _last_intensity[i] * (1 - LED_SMOOTHING) + _intensity[i] * (LED_SMOOTHING);  // apply a smoothing parameter
         }
-        if (intensity[i] < MIN_BRIGHT_FADE) {  // if less than the min value, floor to zero to reduce flicker
-            intensity[i] = 0;
+        if (_intensity[i] < MIN_BRIGHT_FADE) {  // if less than the min value, floor to zero to reduce flicker
+            _intensity[i] = 0;
         }
 
-        _last_intensity[i] = intensity[i];  // update the previous intensity value
+        _last_intensity[i] = _intensity[i];  // update the previous intensity value
     }
 }
 
@@ -448,7 +441,7 @@ void AudioProcessor::calc_intensity_simple() {
             _fft_bin[i] += _v_real[i];
         else {
             for (int j = 0; j < NUM_AUDIO_BANDS; j++) {
-                if (i > int(round(low_bins[j])) && i <= int(round(high_bins[j]))) _fft_bin[j] += _v_real[i];
+                if (i > int(round(_low_bins[j])) && i <= int(round(_high_bins[j]))) _fft_bin[j] += _v_real[i];
             }
         }
     }
@@ -457,10 +450,10 @@ void AudioProcessor::calc_intensity_simple() {
     _interpolate_fft(NUM_AUDIO_BANDS, GRID_W);
 
     for (int i = 0; i < GRID_W; i++) {
-        intensity[i] = int(round(_fft_interp[i] * 16));                                            // TODO: 4 is a fudge factor here to prevent values from peaking
-        intensity[i] = _last_intensity[i] * (1 - LED_SMOOTHING) + intensity[i] * (LED_SMOOTHING);  // apply a smoothing parameter
+        _intensity[i] = int(round(_fft_interp[i] * 16));                                             // TODO: 4 is a fudge factor here to prevent values from peaking
+        _intensity[i] = _last_intensity[i] * (1 - LED_SMOOTHING) + _intensity[i] * (LED_SMOOTHING);  // apply a smoothing parameter
 
-        _last_intensity[i] = intensity[i];
+        _last_intensity[i] = _intensity[i];
     }
 }
 
@@ -470,6 +463,10 @@ void AudioProcessor::print_double_array(double *arr, int len) {
         Serial.print(",");
     }
     Serial.print("\n");
+}
+
+int *AudioProcessor::get_intensity() {
+    return _intensity;
 }
 
 double AudioProcessor::_calc_rms(float *arr, int len) {
@@ -483,14 +480,9 @@ double AudioProcessor::_calc_rms(float *arr, int len) {
 
 // Calculate RMS accounting for max RMS
 double AudioProcessor::_calc_rms_scaled(float *arr, int len) {
-    double sum = 0;
     double rms_scale_val = sqrt(2) / 2;
 
-    for (int i = 0; i < len; i++) {
-        sum = sum + arr[i] * arr[i];
-    }
-
-    return constrain(sqrt(sum / len) / rms_scale_val, 0, 1);
+    return constrain(_calc_rms(arr, len) / rms_scale_val, 0, 1);
 }
 
 void AudioProcessor::_clear_fft_bin() {
