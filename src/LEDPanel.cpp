@@ -3,29 +3,40 @@
 #include "LEDAudioPattern.h"
 
 // Default constructor
-LEDPanel::LEDPanel() {
+LEDPanel::LEDPanel(int width, int height, int num_leds, int led_pin, uint8_t brightness, bool serpentine, first_pixel_location_t first_pixel) {
+    if (!serpentine || first_pixel != BOTTOM_LEFT) {
+        Serial.println("Error: Unsupported LEDPanel config!");
+    }
+
+    this->_w = width;
+    this->_h = height;
+    this->_num_leds = num_leds;
+    this->_led_pin = led_pin;
+    this->_brightness = brightness;
+    this->_serpentine = serpentine;
+    this->_first_pixel = first_pixel;
 }
 
 LEDPanel::~LEDPanel() {
 }
 
-void LEDPanel::init(uint8_t led_pin, int num_leds, uint8_t brightness) {
+void LEDPanel::init() {
     // LED Setup
-    FastLED.addLeds<WS2812, PIN_LED_CONTROL, GRB>(leds, num_leds);
-    FastLED.setBrightness(brightness);
+    FastLED.addLeds<WS2812, PIN_LED_CONTROL, GRB>(_leds, _num_leds);
+    FastLED.setBrightness(_brightness);
     FastLED.clear();
     FastLED.show();
-    curr_palette = Sunset_Real_gp;
+    _curr_palette = Sunset_Real_gp;
     _audio_pattern = new LEDNoisePattern(this);
 }
 
 void LEDPanel::set(int idx, CRGB value) {
-    leds[idx] = value;
+    _leds[idx] = value;
 }
 
 void LEDPanel::set_xy(int x, int y, CRGB value, bool start_top_left) {
     int idx = grid_to_idx(x, y, start_top_left);
-    leds[idx] = value;
+    _leds[idx] = value;
 }
 
 /*** Get Index of LED on a serpentine grid ***/
@@ -56,12 +67,16 @@ int LEDPanel::grid_to_idx(int x, int y, bool start_top_left) {
 }
 
 CRGB LEDPanel::get(int idx) {
-    return leds[idx];
+    return _leds[idx];
 }
 
 CRGB LEDPanel::get_xy(int x, int y, bool start_top_left) {
     int idx = grid_to_idx(x, y, start_top_left);
-    return leds[idx];
+    return _leds[idx];
+}
+
+void LEDPanel::copy_leds(CRGB *dest, int length) {
+    memcpy(dest, this->_leds, sizeof(CRGB) * length);
 }
 
 void LEDPanel::set_audio_pattern(int mode) {
@@ -73,9 +88,6 @@ void LEDPanel::set_audio_pattern(int mode) {
             break;
         case AUDIO_NOISE:
             _audio_pattern = new LEDNoisePattern(this);
-            break;
-        case AUDIO_SCROLLING:
-            _audio_pattern = new LEDScrollingPattern(this);
             break;
         case AUDIO_BARS:
             _audio_pattern = new LEDBarsPattern(this);
@@ -97,6 +109,30 @@ void LEDPanel::set_audio_pattern(int mode) {
 
 void LEDPanel::display_audio(int *intensity) {
     _audio_pattern->set_leds(intensity);
+}
+
+void LEDPanel::set_palette(CRGBPalette16 palette) {
+    this->_curr_palette = palette;
+}
+
+CRGBPalette16 LEDPanel::get_palette() {
+    return this->_curr_palette;
+}
+
+void LEDPanel::set_target_palette(CRGBPalette16 target_palette) {
+    this->_target_palette = target_palette;
+}
+
+void LEDPanel::set_blending(TBlendType blending) {
+    this->_curr_blending = blending;
+}
+
+TBlendType LEDPanel::get_blending() {
+    return this->_curr_blending;
+}
+
+void LEDPanel::blend_palettes(int change_rate) {
+    nblendPaletteTowardPalette(this->_curr_palette, this->_target_palette, change_rate);
 }
 
 /*** Color Palettes ***/

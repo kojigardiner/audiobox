@@ -91,7 +91,7 @@ void LEDNoisePattern::_map_noise_to_leds_using_palette() {
                 bri = dim8_raw(bri * 2);
             }
 
-            CRGB color = ColorFromPalette(_lp->curr_palette, index, bri);
+            CRGB color = ColorFromPalette(_lp->get_palette(), index, bri);
             _lp->set_xy(i, j, color);
         }
     }
@@ -120,7 +120,7 @@ void LEDBarsPattern::set_leds(int *intensity) {
         for (int bar_y = 0; bar_y < GRID_H; bar_y++) {
             if (bar_y < max_y) {
                 int color_index = int(round(float(bar_x) / GRID_W * 255));
-                CRGB color = ColorFromPalette(_lp->curr_palette, color_index, 255, _lp->curr_blending);
+                CRGB color = ColorFromPalette(_lp->get_palette(), color_index, 255, _lp->get_blending());
                 _lp->set_xy(bar_x, bar_y, color);
             } else {
                 _lp->set_xy(bar_x, bar_y, CRGB::Black);
@@ -153,7 +153,7 @@ void LEDOutrunBarsPattern::set_leds(int *intensity) {
             _lp->set_xy(bar_x, bar_y, CRGB::Black);
         }
         int color_index = int(round(float(_peaks[bar_x]) / GRID_H * 255));
-        CRGB color = ColorFromPalette(_lp->curr_palette, color_index, 255, _lp->curr_blending);
+        CRGB color = ColorFromPalette(_lp->get_palette(), color_index, 255, _lp->get_blending());
 
         _lp->set_xy(bar_x, _peaks[bar_x], color);  // light up the peak
 
@@ -178,7 +178,7 @@ void LEDCenterBarsPattern::set_leds(int *intensity) {
         for (int bar_y = 0; bar_y < GRID_H; bar_y++) {
             if (bar_y >= y_start && bar_y <= (y_start + max_y)) {
                 int color_index = constrain((bar_y - y_start) * (255 / max_y), 0, 255);
-                CRGB color = ColorFromPalette(_lp->curr_palette, color_index, 255, _lp->curr_blending);
+                CRGB color = ColorFromPalette(_lp->get_palette(), color_index, 255, _lp->get_blending());
 
                 _lp->set_xy(bar_x, bar_y, color);
             } else {
@@ -200,7 +200,8 @@ void LEDWaterfallPattern::set_leds(int *intensity) {
                 for (int y = 0; y < GRID_H; y++) {
                     int pixelIndexX = _lp->grid_to_idx(bar_x - 1, y);
                     int pixelIndex = _lp->grid_to_idx(bar_x, y);
-                    _lp->leds[pixelIndexX] = _lp->leds[pixelIndex];
+                    _lp->set(pixelIndexX, _lp->get(pixelIndex));
+                    //_lp->leds[pixelIndexX] = _lp->leds[pixelIndex];
                 }
             }
         }
@@ -226,13 +227,13 @@ void LEDSymSnakeGridPattern::set_leds(int *intensity) {
     for (int i = 0; i < GRID_H; i++) {
         if (i % 2 == 0) {
             for (int j = 0; j < GRID_W / 2; j++) {
-                _lp->leds[GRID_W * i + GRID_W / 2 - 1 - j] = ColorFromPalette(_lp->curr_palette, int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->curr_blending);
+                _lp->set(GRID_W * i + GRID_W / 2 - 1 - j, ColorFromPalette(_lp->get_palette(), int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->get_blending()));
                 color_index += 255.0 / (NUM_LEDS / 2);
                 curr_index += 1;
             }
         } else {
             for (int j = 0; j < GRID_W / 2; j++) {
-                _lp->leds[GRID_W * (i + 1) - 1 - j] = ColorFromPalette(_lp->curr_palette, int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->curr_blending);
+                _lp->set(GRID_W * (i + 1) - 1 - j, ColorFromPalette(_lp->get_palette(), int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->get_blending()));
                 color_index += 255.0 / (NUM_LEDS / 2);
                 curr_index += 1;
             }
@@ -256,7 +257,7 @@ void LEDSymSnakeGridPattern::set_leds(int *intensity) {
     for (int i = 0; i < GRID_H; i++) {
         if (i % 2 == 0) {
             for (int j = 0; j < GRID_W / 2; j++) {
-                _lp->leds[GRID_W * i + GRID_W / 2 + j] = ColorFromPalette(_lp->curr_palette, int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->curr_blending);
+                _lp->set(GRID_W * i + GRID_W / 2 + j, ColorFromPalette(_lp->get_palette(), int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->get_blending()));
                 // TODO: Pull color from palette first at intensity[curr_index]; _then_ apply gamma to adjust.
                 // TODO: Use same gammas for RGB that are used on RaspPi
                 color_index += 255.0 / (NUM_LEDS / 2);
@@ -264,47 +265,10 @@ void LEDSymSnakeGridPattern::set_leds(int *intensity) {
             }
         } else {
             for (int j = 0; j < GRID_W / 2; j++) {
-                _lp->leds[GRID_W * i + j] = ColorFromPalette(_lp->curr_palette, int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->curr_blending);
+                _lp->set(GRID_W * i + j, ColorFromPalette(_lp->get_palette(), int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->get_blending()));
                 color_index += 255.0 / (NUM_LEDS / 2);
                 curr_index += 1;
             }
-        }
-    }
-}
-
-// Generate a side-scrolling LED pattern (similar to the waterfall effect).
-void LEDScrollingPattern::set_leds(int *intensity) {
-    // Generate an extra wide representation of the colors
-    int effective_w = GRID_W * SCROLL_AVG_FACTOR;
-    int avg_r, avg_g, avg_b;
-
-    int color_index = 0;
-
-    // For leftmost columns, grab data from the next column over
-    // For the last column, actually take the audio data
-    for (int x = 0; x < effective_w; x++) {
-        for (int y = 0; y < GRID_H; y++) {
-            if (x == effective_w - 1) {
-                _lp->colors_grid_wide[x][y] = ColorFromPalette(_lp->curr_palette, int(color_index), pgm_read_byte(&GAMMA8[int(intensity[y] * 255.0 / double(BRIGHT_LEVELS))]), _lp->curr_blending);
-                color_index += 255.0 / (GRID_H);
-            } else {
-                _lp->colors_grid_wide[x][y] = _lp->colors_grid_wide[x + 1][y];
-                // colors_grid_wide[x][y].fadeToBlackBy(32); // note this is an exponential decay by XX/255. 32 makes this look like a standard spectrogram
-            }
-        }
-    }
-    for (int x = 0; x < GRID_W; x++) {
-        for (int y = 0; y < GRID_H; y++) {
-            avg_r = 0;
-            avg_g = 0;
-            avg_b = 0;
-            for (int i = 0; i < SCROLL_AVG_FACTOR; i++) {
-                avg_r += _lp->colors_grid_wide[x * SCROLL_AVG_FACTOR + i][y].red;
-                avg_g += _lp->colors_grid_wide[x * SCROLL_AVG_FACTOR + i][y].green;
-                avg_b += _lp->colors_grid_wide[x * SCROLL_AVG_FACTOR + i][y].blue;
-            }
-
-            _lp->set_xy(x, y, CRGB(avg_r / SCROLL_AVG_FACTOR, avg_g / SCROLL_AVG_FACTOR, avg_b / SCROLL_AVG_FACTOR));
         }
     }
 }

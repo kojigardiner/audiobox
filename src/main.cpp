@@ -67,7 +67,7 @@ typedef struct AlbumArt {
 } AlbumArt_t;
 AlbumArt_t album_art;
 
-LEDPanel lp = LEDPanel();
+LEDPanel lp = LEDPanel(GRID_W, GRID_H, NUM_LEDS, PIN_LED_CONTROL, MAX_BRIGHT, true, LEDPanel::BOTTOM_LEFT);
 
 void setup() {
     pinMode(PIN_LED_STATUS, OUTPUT);
@@ -122,7 +122,7 @@ void setup() {
 
     // LED Setup
     Serial.println("Setting up LEDs");
-    lp.init(PIN_LED_CONTROL, NUM_LEDS, MAX_BRIGHT);
+    lp.init();
 
     Serial.print("Setup complete\n\n");
 
@@ -329,7 +329,7 @@ void task_display_code(void *parameter) {
                 break;
             }
         }
-        nblendPaletteTowardPalette(lp.curr_palette, lp.target_palette, PALETTE_CHANGE_RATE);
+        lp.blend_palettes(PALETTE_CHANGE_RATE);
 
         // vTaskDelay((1000 / FPS) / portTICK_RATE_MS);
         //   Serial.println(FastLED.getFPS());
@@ -375,7 +375,7 @@ void task_audio_code(void *parameter) {
             xSemaphoreTake(mutex_leds, portMAX_DELAY);
             // Blend with the last image on the led before we changed modes
             if (blend_counter == 0) {  // if the counter reset to 0 it means we changed modes
-                memcpy(last_leds, lp.leds, sizeof(CRGB) * NUM_LEDS);
+                lp.copy_leds(last_leds, NUM_LEDS);
             }
 
             if (last_audio_mode != audio_mode) {
@@ -619,8 +619,8 @@ void decode_art(uint8_t *art_data, unsigned long art_num_bytes) {
         album_art.palette_crgb[i] = CRGB(r8, g8, b8);
     }
 
-    lp.target_palette = CRGBPalette16(album_art.palette_crgb[0], album_art.palette_crgb[1], album_art.palette_crgb[2], album_art.palette_crgb[3],
-                                      album_art.palette_crgb[4], album_art.palette_crgb[5], album_art.palette_crgb[6], album_art.palette_crgb[7],
-                                      album_art.palette_crgb[8], album_art.palette_crgb[9], album_art.palette_crgb[10], album_art.palette_crgb[11],
-                                      album_art.palette_crgb[12], album_art.palette_crgb[13], album_art.palette_crgb[14], album_art.palette_crgb[15]);
+    lp.set_target_palette(CRGBPalette16(album_art.palette_crgb[0], album_art.palette_crgb[1], album_art.palette_crgb[2], album_art.palette_crgb[3],
+                                        album_art.palette_crgb[4], album_art.palette_crgb[5], album_art.palette_crgb[6], album_art.palette_crgb[7],
+                                        album_art.palette_crgb[8], album_art.palette_crgb[9], album_art.palette_crgb[10], album_art.palette_crgb[11],
+                                        album_art.palette_crgb[12], album_art.palette_crgb[13], album_art.palette_crgb[14], album_art.palette_crgb[15]));
 }

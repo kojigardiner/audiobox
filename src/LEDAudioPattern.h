@@ -104,11 +104,4 @@ class LEDSymSnakeGridPattern : public LEDAudioPattern {
     void set_leds(int *intensity) override;
 };
 
-// Left-right scrolling pattern
-class LEDScrollingPattern : public LEDAudioPattern {
-   public:
-    LEDScrollingPattern(LEDPanel *lp) : LEDAudioPattern(lp){};
-    void set_leds(int *intensity) override;
-};
-
 #endif  // _LEDAUDIOPATTERN_H
