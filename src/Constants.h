@@ -5,6 +5,9 @@
 
 //#define SERVO_DEBUG  // uncomment for manual servo control
 //#define FFT_WHITE_NOISE_CAL  // uncomment for white noise calibration
+const char* const APP_NAME = "ESP32_LED_16x16";
+const char* const PREFS_WIFI_SSID_KEY = "wifi_ssid";
+const char* const PREFS_WIFI_PASS_KEY = "wifi_pass";
 
 #define PIN_LED_CONTROL 12  // LED strip control GPIO
 #define PIN_LED_STATUS 2    // Status LED on HiLetgo board

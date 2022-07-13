@@ -3,12 +3,14 @@
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
 #include <FastLED.h>
+#include <Preferences.h>
 #include <SPIFFS.h>
 #include <TJpg_Decoder.h>
 #include <WiFi.h>
 
 #include "AudioProcessor.h"
 #include "ButtonFSM.h"
+#include "CLI.h"
 #include "Constants.h"
 #include "LEDPanel.h"
 #include "MeanCut.h"
@@ -88,24 +90,37 @@ void setup() {
     Serial.print("Initial safety delay\n");
     delay(500);  // power-up safety delay to avoid brown out
 
-    // JPG decoder setup
-    Serial.print("Setting up JPG decoder\n");
-    TJpgDec.setJpgScale(1);              // Assuming 64x64 image, will rescale to 16x16
-    TJpgDec.setCallback(copy_jpg_data);  // The decoder must be given the exact name of the rendering function above
+    Serial.print("Loading preferences\n");
+    Preferences prefs;
+    char wifi_ssid[MAX_CHARS];
+    char wifi_pass[MAX_CHARS];
 
-    // Filessystem setup
-    Serial.print("Setting up filesystem\n");
-    if (!SPIFFS.begin(true)) {
-        Serial.println("An Error has occurred while mounting SPIFFS");
-        return;
+    prefs.begin(APP_NAME, true);
+    if (!prefs.getString(PREFS_WIFI_SSID_KEY, wifi_ssid, MAX_CHARS) || !prefs.getString(PREFS_WIFI_PASS_KEY, wifi_pass, MAX_CHARS)) {
+        Serial.println("Failed to get wifi preferences!");
+    }
+    prefs.end();
+
+    // Drop into debug CLI if button is depressed
+    pinMode(PIN_BUTTON_MODE, INPUT_PULLUP);
+    if (digitalRead(PIN_BUTTON_MODE) == LOW) {
+        cli_main();
+
+        // re-get prefs in case they were changed in cli
+        prefs.begin(APP_NAME, true);
+        if (!prefs.getString(PREFS_WIFI_SSID_KEY, wifi_ssid, MAX_CHARS) || !prefs.getString(PREFS_WIFI_PASS_KEY, wifi_pass, MAX_CHARS)) {
+            Serial.println("Failed to get wifi preferences!");
+        }
+        prefs.end();
     }
 
     // WiFi Setup
-    Serial.print("Setting up wifi");
+    Serial.print("Wifi connecting to ");
+    Serial.println(wifi_ssid);
     WiFi.mode(WIFI_STA);
     WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
-    WiFi.setHostname(WIFI_HOSTNAME);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    WiFi.setHostname(APP_NAME);
+    WiFi.begin(wifi_ssid, wifi_pass);
 
     bool led_state = HIGH;
     while (WiFi.status() != WL_CONNECTED) {
@@ -119,6 +134,18 @@ void setup() {
     Serial.println(WiFi.localIP());
     Serial.print("RSSI: ");
     Serial.println(WiFi.RSSI());
+
+    // JPG decoder setup
+    Serial.print("Setting up JPG decoder\n");
+    TJpgDec.setJpgScale(1);              // Assuming 64x64 image, will rescale to 16x16
+    TJpgDec.setCallback(copy_jpg_data);  // The decoder must be given the exact name of the rendering function above
+
+    // Filessystem setup
+    Serial.print("Setting up filesystem\n");
+    if (!SPIFFS.begin(true)) {
+        Serial.println("An Error has occurred while mounting SPIFFS");
+        return;
+    }
 
     // LED Setup
     Serial.println("Setting up LEDs");

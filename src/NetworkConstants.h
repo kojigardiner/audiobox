@@ -3,13 +3,6 @@
 
 #include <Arduino.h>
 
-// Wifi Globals
-const char* const WIFI_HOSTNAME = "ESP32 LED 16x16";
-const char* const WIFI_SSID = "***REMOVED***";
-const char* const WIFI_PASS = "***REMOVED***";
-// const char* const WIFI_SSID = "***REMOVED***";
-// const char* const WIFI_PASS = "***REMOVED***";
-
 // Spotify Globals
 const String SPOTIFY_CLIENT_ID = "***REMOVED***";
 const String SPOTIFY_REDIRECT_URI = "http%3A%2F%2Fhttpbin.org%2Fanything";
