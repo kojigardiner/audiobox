@@ -5,7 +5,9 @@
 
 class Timer {
    public:
+    // Constructor
     Timer(uint32_t timeout_ms = 0);
+
     bool has_elapsed(bool reset = true);
     void reset();
     void set_timeout_ms(uint32_t timeout_ms);

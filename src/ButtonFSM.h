@@ -7,27 +7,32 @@
 #define BUTTON_HOLD_TIME_MS 500
 #define BUTTON_FSM_CYCLE_TIME_MS 10
 
-enum ButtonFSMState {
-    START,
-    WAIT,
-    ARMED,
-    HOLD,
-    MOMENTARY_TRIGGERED,
-    HOLD_TRIGGERED
-};
-
 class ButtonFSM {
    public:
+    // Constructor
     ButtonFSM(int button_id);
 
+    enum button_fsm_state_t {
+        START,
+        WAIT,
+        ARMED,
+        HOLD,
+        MOMENTARY_TRIGGERED,
+        HOLD_TRIGGERED
+    };
+
+    // Move to next state in state machine
     void advance();
-    ButtonFSMState get_state();
+
+    // Return current state in state machine
+    button_fsm_state_t get_state();
 
    private:
+    // Read physical button pin
     void _read();
 
-    ButtonFSMState _state = START;
-    ButtonFSMState _prev_state = START;
+    button_fsm_state_t _state = START;
+    button_fsm_state_t _prev_state = START;
 
     int _button_read = HIGH;
     int _button_id = -1;

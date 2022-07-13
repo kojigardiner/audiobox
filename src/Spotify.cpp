@@ -19,7 +19,7 @@ void Spotify::update() {
         _reset_variables();
     }
 
-    if (track_changed) {
+    if (_track_changed) {
         if (!_get_features()) {
             _reset_variables();
         } else {
@@ -28,36 +28,51 @@ void Spotify::update() {
     }
 }
 
+// Returns a value from 0 to 1.0 indicating how far in the current track playback has progressed
+double Spotify::get_track_progress() {
+    return double(_progress_ms) / _duration_ms;
+}
+
+// Indicates if Spotify is current running on the linked account
+bool Spotify::is_active() {
+    return _is_active;
+}
+
+// Returns struct containing album art details
+Spotify::album_art_t Spotify::get_album_art() {
+    return _album_art;
+}
+
 // Prints variables related to current playing track
 void Spotify::print() {
     Serial.print("\tTitle: ");
-    Serial.println(track_title);
+    Serial.println(_track_title);
     Serial.print("\tArtist: ");
-    Serial.println(artists);
+    Serial.println(_artists);
     Serial.print("\tAlbum: ");
-    Serial.println(album);
+    Serial.println(_album);
     Serial.print("\tAlbum art: ");
-    Serial.println(art_url);
+    Serial.println(_album_art.url);
     Serial.print("\tAlbum art width: ");
-    Serial.println(art_width);
+    Serial.println(_album_art.width);
     Serial.print("\tDuration (ms): ");
-    Serial.println(duration_ms);
+    Serial.println(_duration_ms);
     Serial.print("\tProgress (ms): ");
-    Serial.println(progress_ms);
+    Serial.println(_progress_ms);
     Serial.print("\tPlaying: ");
-    Serial.println(is_playing);
+    Serial.println(_is_playing);
     Serial.print("\tDevice: ");
-    Serial.println(device);
+    Serial.println(_device);
     Serial.print("\tType: ");
-    Serial.println(device_type);
+    Serial.println(_device_type);
     Serial.print("\tActive: ");
-    Serial.println(is_active);
+    Serial.println(_is_active);
     Serial.print("\tVolume: ");
-    Serial.println(volume);
+    Serial.println(_volume);
     Serial.print("\tTempo: ");
-    Serial.println(tempo);
+    Serial.println(_tempo);
     Serial.print("\tEnergy: ");
-    Serial.println(energy);
+    Serial.println(_energy);
 }
 
 // Gets token for use with Spotify Web API
@@ -102,7 +117,8 @@ bool Spotify::_get_player() {
     String payload = http.getString();
     http.end();
 
-    switch (httpCode) {  // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
+    // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
+    switch (httpCode) {
         case HTTP_CODE_OK: {
             DynamicJsonDocument json(20000);
             if (deserializeJson(json, payload) != DeserializationError::Ok) {
@@ -148,7 +164,7 @@ bool Spotify::_get_features() {
     bool ret;
     HTTPClient http;
 
-    http.begin(SPOTIFY_FEATURES_URL + "/" + track_id);
+    http.begin(SPOTIFY_FEATURES_URL + "/" + _track_id);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Accept", "application/json");
     http.addHeader("Authorization", "Bearer " + _token);
@@ -164,8 +180,8 @@ bool Spotify::_get_features() {
                 Serial.println("json deserialization error");
                 ret = false;
             } else {
-                tempo = json["tempo"].as<float>();
-                energy = json["energy"].as<float>();
+                _tempo = json["tempo"].as<float>();
+                _energy = json["energy"].as<float>();
                 ret = true;
             }
 
@@ -174,8 +190,8 @@ bool Spotify::_get_features() {
         }
         case HTTP_CODE_NO_CONTENT:
             Serial.println(String(httpCode) + ": Playback not available/active");
-            is_active = false;
-            is_playing = false;
+            _is_active = false;
+            _is_playing = false;
             _token_expired = false;
             ret = false;
             break;
@@ -205,49 +221,49 @@ bool Spotify::_get_features() {
 void Spotify::_parse_json(DynamicJsonDocument *json) {
     String parsed_track_id = (*json)["item"]["id"].as<String>();
 
-    if (track_id != parsed_track_id) {  // if the track has changed
-        track_changed = true;
-        track_id = parsed_track_id;
-        track_title = (*json)["item"]["name"].as<String>();
-        album = (*json)["item"]["album"]["name"].as<String>();
+    if (_track_id != parsed_track_id) {  // if the track has changed
+        _track_changed = true;
+        _track_id = parsed_track_id;
+        _track_title = (*json)["item"]["name"].as<String>();
+        _album = (*json)["item"]["album"]["name"].as<String>();
 
         JsonArray arr = (*json)["item"]["artists"].as<JsonArray>();
-        artists = "";
+        _artists = "";
         for (JsonVariant value : arr) {
-            artists += value["name"].as<String>() + " ";
+            _artists += value["name"].as<String>() + " ";
         }
-        is_active = (*json)["device"]["is_active"].as<bool>();
-        device_type = (*json)["device"]["type"].as<String>();
-        progress_ms = (*json)["progress_ms"].as<int>();
-        duration_ms = (*json)["item"]["duration_ms"].as<int>();
-        is_playing = (*json)["is_playing"].as<bool>();
-        device = (*json)["device"]["name"].as<String>();
-        volume = (*json)["device"]["volume_percent"].as<int>();
+        _is_active = (*json)["device"]["is_active"].as<bool>();
+        _device_type = (*json)["device"]["type"].as<String>();
+        _progress_ms = (*json)["progress_ms"].as<int>();
+        _duration_ms = (*json)["item"]["duration_ms"].as<int>();
+        _is_playing = (*json)["is_playing"].as<bool>();
+        _device = (*json)["device"]["name"].as<String>();
+        _volume = (*json)["device"]["volume_percent"].as<int>();
 
         int art_url_count = (*json)["item"]["album"]["images"].size();                                      // count number of album art URLs
         String parsed_art_url = (*json)["item"]["album"]["images"][art_url_count - 1]["url"].as<String>();  // the last one is the smallest, typically 64x64
         parsed_art_url.replace("https", "http");                                                            // needed to eliminate SSL handshake errors
 
-        if (art_url != parsed_art_url) {  // if the art url has changed
-            art_url = parsed_art_url;
-            art_changed = true;
+        if (_album_art.url != parsed_art_url) {  // if the art url has changed
+            _album_art.url = parsed_art_url;
+            _album_art.changed = true;
 
-            art_width = (*json)["item"]["album"]["images"][art_url_count - 1]["width"].as<int>();
-            is_art_loaded = false;
+            _album_art.width = (*json)["item"]["album"]["images"][art_url_count - 1]["width"].as<int>();
+            _album_art.loaded = false;
 
-            if (art_url == NULL) {
-                track_id = "";  // force next loop to check json again
+            if (_album_art.url == NULL) {
+                _track_id = "";  // force next loop to check json again
             } else {
                 _get_art();
             }
         } else {
-            art_changed = false;
+            _album_art.changed = false;
         }
     } else {  // if it's the same track, just show how far we've advanced
-        track_changed = false;
-        art_changed = false;
-        progress_ms = (*json)["progress_ms"].as<int>();
-        duration_ms = (*json)["item"]["duration_ms"].as<int>();
+        _track_changed = false;
+        _album_art.changed = false;
+        _progress_ms = (*json)["progress_ms"].as<int>();
+        _duration_ms = (*json)["item"]["duration_ms"].as<int>();
     }
 }
 
@@ -255,32 +271,30 @@ void Spotify::_parse_json(DynamicJsonDocument *json) {
 bool Spotify::_get_art() {
     bool ret;
     int start_ms = millis();
-    Serial.println("Downloading " + art_url);
+    Serial.println("Downloading " + _album_art.url);
 
     HTTPClient http;
-    http.begin(art_url);
+    http.begin(_album_art.url);
 
-    // Start connection and send HTTP header
     int httpCode = http.GET();
 
-    // File found at server
     if (httpCode == HTTP_CODE_OK) {
         // Get length of document (is -1 when Server sends no Content-Length header)
         int total = http.getSize();
 
-        art_num_bytes = total;
+        _album_art.num_bytes = total;
 
         // Allocate memory in heap for the downloaded data
-        if (art_data != NULL) {
+        if (_album_art.data != NULL) {
             Serial.println("Free heap prior to free: " + String(ESP.getFreeHeap()));
-            free(art_data);  // if not NULL, we have previously allocated memory and should free it
+            free(_album_art.data);  // if not NULL, we have previously allocated memory and should free it
         }
         Serial.println("Free heap prior to malloc: " + String(ESP.getFreeHeap()));
-        art_data = (uint8_t *)malloc(art_num_bytes * sizeof(*(art_data)));  // dereference the art_data pointer to get the size of each element (uint8_t)
+        _album_art.data = (uint8_t *)malloc(_album_art.num_bytes * sizeof(*(_album_art.data)));  // dereference the art_data pointer to get the size of each element (uint8_t)
 
-        if (art_data == NULL) {
+        if (_album_art.data == NULL) {
             Serial.println("Not enough heap for malloc");
-            is_art_loaded = false;
+            _album_art.loaded = false;
             ret = false;
         } else {
             int len = total;
@@ -304,7 +318,7 @@ bool Spotify::_get_art() {
                     // f.write(buff, c);
 
                     // Write it to memory, (curr_art_size - len) is the number of bytes already written
-                    memcpy(&(art_data)[art_num_bytes - len], buff, c);
+                    memcpy(&(_album_art.data)[_album_art.num_bytes - len], buff, c);
 
                     // Calculate remaining bytes
                     if (len > 0) {
@@ -315,15 +329,15 @@ bool Spotify::_get_art() {
             }
             // Serial.println();
             // Serial.print("[HTTP] connection closed or file end.\n");
-            is_art_loaded = true;
+            _album_art.loaded = true;
             Serial.println(String(millis() - start_ms) + "ms to download art");
             ret = true;
         }
     }
     // f.close();
     else {
-        Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-        is_art_loaded = false;
+        Serial.println(String(httpCode) + ": Unrecognized error");
+        _album_art.loaded = false;
         ret = false;
     }
     http.end();
@@ -332,27 +346,28 @@ bool Spotify::_get_art() {
 }
 
 void Spotify::_reset_variables() {
-    progress_ms = 0;
-    duration_ms = 0;
-    volume = 0;
-    track_id = "";
-    artists = "";
-    track_title = "";
-    album = "";
-    device = "";
-    device_type = "";
-    art_url = "";
-    art_width = 0;
-    is_active = false;
-    is_playing = false;
-    if (art_data != NULL) {
-        free(art_data);
+    _progress_ms = 0;
+    _duration_ms = 0;
+    _volume = 0;
+    _track_id = "";
+    _artists = "";
+    _track_title = "";
+    _album = "";
+    _device = "";
+    _device_type = "";
+    _is_active = false;
+    _is_playing = false;
+    _tempo = 0.0;
+    _energy = 0.0;
+    _track_changed = false;
+
+    _album_art.url = "";
+    _album_art.width = 0;
+    if (_album_art.data != NULL) {
+        free(_album_art.data);
     }
-    art_data = NULL;
-    art_num_bytes = 0;
-    is_art_loaded = false;
-    tempo = 0.0;
-    energy = 0.0;
-    track_changed = false;
-    art_changed = false;
+    _album_art.data = NULL;
+    _album_art.num_bytes = 0;
+    _album_art.loaded = false;
+    _album_art.changed = false;
 }

@@ -133,8 +133,8 @@ void setup() {
     mutex_leds = xSemaphoreCreateMutex();
 
     q_spotify = xQueueCreate(1, sizeof(Spotify));
-    q_button_to_display = xQueueCreate(10, sizeof(ButtonFSMState));
-    q_button_to_audio = xQueueCreate(10, sizeof(ButtonFSMState));
+    q_button_to_display = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
+    q_button_to_audio = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
     q_servo = xQueueCreate(10, sizeof(int));
     q_mode = xQueueCreate(1, sizeof(Modes_t));
     q_audio_done = xQueueCreate(1, sizeof(uint8_t));
@@ -209,7 +209,7 @@ void task_display_code(void *parameter) {
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = (1000.0 / FPS) / portTICK_RATE_MS;
 
-    ButtonFSMState button_state;
+    ButtonFSM::button_fsm_state_t button_state;
     Spotify sp;
     BaseType_t q_return;
     double percent_complete = 0;
@@ -242,7 +242,7 @@ void task_display_code(void *parameter) {
         q_return = xQueueReceive(q_button_to_display, &button_state, 0);  // get a new button state if one is available
         if (q_return == pdTRUE) {
             switch (button_state) {
-                case MOMENTARY_TRIGGERED:  // change the sub-mode
+                case ButtonFSM::MOMENTARY_TRIGGERED:  // change the sub-mode
                     switch (modes.display.get_mode()) {
                         case DISPLAY_ART:
                             Serial.println("Changing art display type");
@@ -255,7 +255,7 @@ void task_display_code(void *parameter) {
                     }
                     break;
 
-                case HOLD_TRIGGERED:  // change the main mode
+                case ButtonFSM::HOLD_TRIGGERED:  // change the main mode
                     Serial.println("Changing display mode");
                     modes.display.cycle_mode();
                     break;
@@ -269,13 +269,13 @@ void task_display_code(void *parameter) {
 
         q_return = xQueueReceive(q_spotify, &sp, 0);  // get the spotify update if there is one
         if (q_return == pdTRUE) {
-            if (sp.is_active) {
-                percent_complete = double(sp.progress_ms) / sp.duration_ms * 100;
+            if (sp.is_active()) {
+                percent_complete = sp.get_track_progress() * 100;
                 // Serial.println("Playing..." + String(percent_complete) + "%");
             } else {
                 modes.display.set_mode(DISPLAY_ART);  // will be blank when there's no art
             }
-            if (sp.art_changed) {
+            if (sp.get_album_art().changed) {
                 modes.display.set_mode(DISPLAY_ART);  // show art on track change
             }
         }
@@ -285,7 +285,7 @@ void task_display_code(void *parameter) {
         switch (modes.display.get_mode()) {
             case DISPLAY_ART: {
                 // Display art and current elapsed regardless of if we have new data from the queue
-                if (sp.is_art_loaded && sp.is_active) {
+                if (sp.get_album_art().loaded && sp.is_active()) {
                     xSemaphoreTake(mutex_leds, portMAX_DELAY);
 
                     display_full_art(0, 0);
@@ -429,8 +429,9 @@ void task_spotify_code(void *parameter) {
     for (;;) {
         if ((WiFi.status() == WL_CONNECTED)) {
             sp.update();
-            if (sp.art_changed) {
-                decode_art(sp.art_data, sp.art_num_bytes);
+            Spotify::album_art_t album_art = sp.get_album_art();
+            if (album_art.changed) {
+                decode_art(album_art.data, album_art.num_bytes);
             }
             xQueueSend(q_spotify, &sp, 0);  // set timeout to zero so loop will continue until display is updated
         } else {
@@ -446,19 +447,19 @@ void task_buttons_code(void *parameter) {
     Serial.println(xPortGetCoreID());
 
     ButtonFSM button_fsm = ButtonFSM(PIN_BUTTON_MODE);
-    ButtonFSMState button_state;
+    ButtonFSM::button_fsm_state_t button_state;
 
     for (;;) {
         button_fsm.advance();
         button_state = button_fsm.get_state();
 
-        if (button_state == HOLD_TRIGGERED) {  // change modes
+        if (button_state == ButtonFSM::HOLD_TRIGGERED) {  // change modes
             xQueueSend(q_button_to_display, &button_state, 0);
             xQueueSend(q_button_to_audio, &button_state, 0);
 
             Serial.println("Hold button");
         }
-        if (button_state == MOMENTARY_TRIGGERED) {  // move the servos
+        if (button_state == ButtonFSM::MOMENTARY_TRIGGERED) {  // move the servos
             xQueueSend(q_button_to_display, &button_state, 0);
             xQueueSend(q_button_to_audio, &button_state, 0);
 

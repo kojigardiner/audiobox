@@ -54,6 +54,6 @@ void ButtonFSM::_read() {
 }
 
 // Return the current state
-ButtonFSMState ButtonFSM::get_state() {
+ButtonFSM::button_fsm_state_t ButtonFSM::get_state() {
     return _state;
 }
