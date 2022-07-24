@@ -15,8 +15,8 @@
 #include "LEDPanel.h"
 #include "MeanCut.h"
 #include "Mode.h"
-#include "NetworkConstants.h"
 #include "Spotify.h"
+#include "Utils.h"
 
 /*** Function Prototypes ***/
 
@@ -90,50 +90,20 @@ void setup() {
     Serial.print("Initial safety delay\n");
     delay(500);  // power-up safety delay to avoid brown out
 
-    Serial.print("Loading preferences\n");
-    Preferences prefs;
-    char wifi_ssid[MAX_CHARS];
-    char wifi_pass[MAX_CHARS];
-
-    prefs.begin(APP_NAME, true);
-    if (!prefs.getString(PREFS_WIFI_SSID_KEY, wifi_ssid, MAX_CHARS) || !prefs.getString(PREFS_WIFI_PASS_KEY, wifi_pass, MAX_CHARS)) {
-        Serial.println("Failed to get wifi preferences!");
-    }
-    prefs.end();
-
     // Drop into debug CLI if button is depressed
     pinMode(PIN_BUTTON_MODE, INPUT_PULLUP);
     if (digitalRead(PIN_BUTTON_MODE) == LOW) {
-        cli_main();
-
-        // re-get prefs in case they were changed in cli
-        prefs.begin(APP_NAME, true);
-        if (!prefs.getString(PREFS_WIFI_SSID_KEY, wifi_ssid, MAX_CHARS) || !prefs.getString(PREFS_WIFI_PASS_KEY, wifi_pass, MAX_CHARS)) {
-            Serial.println("Failed to get wifi preferences!");
-        }
-        prefs.end();
+        setup_cli();
     }
 
-    // WiFi Setup
-    Serial.print("Wifi connecting to ");
-    Serial.println(wifi_ssid);
-    WiFi.mode(WIFI_STA);
-    WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
-    WiFi.setHostname(APP_NAME);
-    WiFi.begin(wifi_ssid, wifi_pass);
+    Serial.print("Loading preferences\n");
 
-    bool led_state = HIGH;
-    while (WiFi.status() != WL_CONNECTED) {
-        digitalWrite(PIN_BUTTON_LED, led_state);  // blink the LED
-        led_state = !led_state;
-        Serial.print(".");
-        delay(500);
+    if (!check_prefs()) {
+        Serial.println("Missing preferences! Power off and power on while pressing the main button to configure preferences.");
     }
-    Serial.print("connected\n");
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
-    Serial.print("RSSI: ");
-    Serial.println(WiFi.RSSI());
+
+    // Wifi setup
+    connect_wifi();
 
     // JPG decoder setup
     Serial.print("Setting up JPG decoder\n");
@@ -259,10 +229,10 @@ void task_display_code(void *parameter) {
             xQueueSend(q_servo, &new_pos, 0);
 
             xSemaphoreTake(mutex_leds, portMAX_DELAY);
-            FastLED.clear(true);
 
             vTaskDelay(((SERVO_ART_POS - SERVO_NOISE_POS) * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
             Serial.println("Switch is high, going to sleep");
+            FastLED.clear(true);
             esp_deep_sleep_start();
         }
         // Check for button push and mode change
@@ -451,7 +421,13 @@ void task_spotify_code(void *parameter) {
     Serial.print("task_spotify_code running on core ");
     Serial.println(xPortGetCoreID());
 
-    Spotify sp = Spotify();
+    Preferences prefs;
+    prefs.begin(APP_NAME);
+    Spotify sp = Spotify(
+        prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY).c_str(),
+        prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY).c_str(),
+        prefs.getString(PREFS_SPOTIFY_REFRESH_TOKEN_KEY).c_str());
+    prefs.end();
 
     for (;;) {
         if ((WiFi.status() == WL_CONNECTED)) {

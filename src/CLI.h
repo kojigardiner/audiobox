@@ -1,17 +1,16 @@
 #ifndef CLI_H
 #define CLI_H
 
-#define MAX_CHARS 256
-#include <Arduino.h>
-#include <Preferences.h>
-
-#include "Constants.h"
-#include "NetworkConstants.h"
-
+void setup_cli();
 void cli_main();
 void cli_wifi();
 void cli_spotify();
 void cli_clear_prefs();
-int get_input(char *rcvd);
+
+void check_wifi_prefs();
+void set_wifi_prefs();
+void set_spotify_client_id();
+void set_spotify_account();
+void clear_prefs();
 
 #endif  // CLI_H

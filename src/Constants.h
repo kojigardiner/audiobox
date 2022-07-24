@@ -8,6 +8,12 @@
 const char* const APP_NAME = "ESP32_LED_16x16";
 const char* const PREFS_WIFI_SSID_KEY = "wifi_ssid";
 const char* const PREFS_WIFI_PASS_KEY = "wifi_pass";
+const char* const PREFS_SPOTIFY_CLIENT_ID_KEY = "sp_cli_id";
+const char* const PREFS_SPOTIFY_CLIENT_SECRET_KEY = "sp_cli_sec";
+const char* const PREFS_SPOTIFY_AUTH_B64_KEY = "sp_auth_b64";
+const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
+
+#define CLI_MAX_CHARS 256  // max number of chars for CLI
 
 #define PIN_LED_CONTROL 12  // LED strip control GPIO
 #define PIN_LED_STATUS 2    // Status LED on HiLetgo board
@@ -58,7 +64,7 @@ const char* const PREFS_WIFI_PASS_KEY = "wifi_pass";
 #define SERVO_MIN_POS 30
 
 #define SERVO_NOISE_POS 70
-#define SERVO_ART_POS 120
+#define SERVO_ART_POS 160
 #define SERVO_BARS_POS 145
 #define SERVO_GRID_POS 90
 

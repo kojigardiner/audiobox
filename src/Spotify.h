@@ -6,12 +6,19 @@
 #include <HTTPClient.h>
 
 #include "Constants.h"
-#include "NetworkConstants.h"
+
+const String SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize";
+const String SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
+const String SPOTIFY_REDIRECT_URI = "http%3A%2F%2Fhttpbin.org%2Fanything";
+const String SPOTIFY_SCOPE = "user-read-playback-state+user-read-playback-position";  //+user-modify-playback-state"
+const String SPOTIFY_PLAYER_URL = "https://api.spotify.com/v1/me/player";
+const String SPOTIFY_FEATURES_URL = "https://api.spotify.com/v1/audio-features";
 
 class Spotify {
    public:
     // Constructor
     Spotify();
+    Spotify(const char *client_id, const char *auth_b64, const char *refresh_token);
 
     // Struct definition
     struct album_art_t {
@@ -23,11 +30,15 @@ class Spotify {
         unsigned long num_bytes;
     };
 
+    // Static methods for initial account setup
+
+    // CLI flow for requesting user authorization to access their account
+    static bool request_user_auth(const char *client_id, const char *auth_b64, char *refresh_token);
+
     // Methods
 
     // Get the latest Spotify data
-    void
-    update();
+    void update();
 
     // Print the details of current Spotify playback to Serial
     void print();
@@ -65,8 +76,10 @@ class Spotify {
     // Variables
     bool _token_expired = true;
     String _token = "";
+    String _refresh_token;
+    String _client_id;
+    String _auth_b64;
 
-    // Variables
     unsigned long _progress_ms = 0;
     unsigned long _duration_ms = 0;
     uint8_t _volume = 0;
