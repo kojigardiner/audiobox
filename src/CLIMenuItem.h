@@ -1,8 +1,7 @@
 #ifndef _CLIMENUITEM_H
 #define _CLIMENUITEM_H
 
-#define MAX_CLI_MENU_ITEMS 9
-#define MAX_CLI_MENU_TEXT 256
+#include "Constants.h"
 
 // Forward declaration
 class CLIMenu;

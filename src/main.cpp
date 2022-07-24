@@ -93,7 +93,7 @@ void setup() {
     // Drop into debug CLI if button is depressed
     pinMode(PIN_BUTTON_MODE, INPUT_PULLUP);
     if (digitalRead(PIN_BUTTON_MODE) == LOW) {
-        setup_cli();
+        start_cli();
     }
 
     Serial.print("Loading preferences\n");

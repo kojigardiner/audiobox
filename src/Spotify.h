@@ -17,7 +17,7 @@ const String SPOTIFY_FEATURES_URL = "https://api.spotify.com/v1/audio-features";
 class Spotify {
    public:
     // Constructor
-    Spotify();
+    Spotify() = default;
     Spotify(const char *client_id, const char *auth_b64, const char *refresh_token);
 
     // Struct definition
@@ -34,6 +34,7 @@ class Spotify {
 
     // CLI flow for requesting user authorization to access their account
     static bool request_user_auth(const char *client_id, const char *auth_b64, char *refresh_token);
+    static bool get_refresh_token(const char *auth_b64, char *refresh_token);
 
     // Methods
 

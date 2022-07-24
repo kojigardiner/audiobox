@@ -1,6 +1,8 @@
 #ifndef CONSTANTS_H
 #define CONSTANTS_H
 
+#include <Arduino.h>
+
 /*** Defines ***/
 
 //#define SERVO_DEBUG  // uncomment for manual servo control
@@ -13,7 +15,9 @@ const char* const PREFS_SPOTIFY_CLIENT_SECRET_KEY = "sp_cli_sec";
 const char* const PREFS_SPOTIFY_AUTH_B64_KEY = "sp_auth_b64";
 const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 
-#define CLI_MAX_CHARS 256  // max number of chars for CLI
+#define CLI_MAX_CHARS 256     // max number of chars for CLI input
+#define MAX_CLI_MENU_ITEMS 9  // max items per level of CLI
+#define MAX_CLI_MENU_TEXT 64  // max text length for CLI menu items
 
 #define PIN_LED_CONTROL 12  // LED strip control GPIO
 #define PIN_LED_STATUS 2    // Status LED on HiLetgo board

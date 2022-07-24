@@ -8,6 +8,6 @@ void connect_wifi();
 bool check_prefs();
 int get_input(char *rcvd);
 void set_pref(Preferences *prefs, const char *key, const char *value = NULL);
-String compute_auth_b64(String user, String pass);
+void compute_auth_b64(const char *user, const char *pass, char *auth_b64);
 
 #endif  // _UTILS_H

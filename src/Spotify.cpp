@@ -2,12 +2,6 @@
 
 #include "Utils.h"
 
-// Default constructor
-Spotify::Spotify() {
-    // don't run _get_token here, because we may not be connected to the network yet
-    _reset_variables();
-}
-
 Spotify::Spotify(const char *client_id, const char *auth_b64, const char *refresh_token) {
     // don't run _get_token here, because we may not be connected to the network yet
     _client_id = client_id;
@@ -15,6 +9,46 @@ Spotify::Spotify(const char *client_id, const char *auth_b64, const char *refres
     _refresh_token = refresh_token;
 
     _reset_variables();
+}
+
+bool Spotify::get_refresh_token(const char *auth_b64, char *refresh_token) {
+    bool ret = false;
+    HTTPClient http;
+
+    // get the authorization code from the user
+    char auth_code[CLI_MAX_CHARS];
+    Serial.print("\nCopy and paste the characters after \"code: \" on the webpage. Do not include the quotation (\") marks: ");
+    get_input(auth_code);
+
+    http.begin(SPOTIFY_TOKEN_URL);
+    http.addHeader("Authorization", "Basic " + (String)auth_b64);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    String request_data = "grant_type=authorization_code&code=" + (String)auth_code + "&redirect_uri=" + SPOTIFY_REDIRECT_URI;
+
+    int httpCode = http.POST(request_data);
+    String response = http.getString();
+    Serial.println(response);
+    http.end();
+
+    switch (httpCode) {
+        case HTTP_CODE_OK: {
+            DynamicJsonDocument json(20000);
+            if (deserializeJson(json, response) != DeserializationError::Ok) {
+                Serial.println("json deserialization error");
+                ret = false;
+            } else {
+                strncpy(refresh_token, (json)["refresh_token"].as<String>().c_str(), CLI_MAX_CHARS);
+                ret = true;
+            }
+            break;
+        }
+        default: {
+            Serial.println(String(httpCode) + ": Unrecognized error");
+            ret = false;
+            break;
+        }
+    }
+    return ret;
 }
 
 // CLI flow for requesting user to grant access to their account
@@ -31,6 +65,7 @@ bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, cha
 
     http.begin(url);
     int httpCode = http.GET();
+
     String payload = http.getLocation();  // we are expecting an http redirect, so get the location
     http.end();
 
@@ -40,31 +75,8 @@ bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, cha
             Serial.print("\nLaunch the following URL in your browser to authorize access: ");
             Serial.println(payload);
             Serial.println("\nAfter granting access, you will be redirected to a webpage.");
-            Serial.print("\nCopy and paste the characters after \"code: \" on the webpage. Do not include the quotation (\") marks: ");
 
-            // TODO: split this section into its own function
-            char code[CLI_MAX_CHARS];
-            get_input(code);
-
-            http.begin(SPOTIFY_TOKEN_URL);
-            http.addHeader("Authorization", "Basic " + (String)auth_b64);
-            http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-            String request_data = "grant_type=authorization_code&code=" + (String)code + "&redirect_uri=" + SPOTIFY_REDIRECT_URI;
-            int httpCode = http.POST(request_data);
-
-            String response = http.getString();
-            // TODO: add error checking here
-            Serial.println(response);
-            http.end();
-
-            DynamicJsonDocument json(20000);
-            if (deserializeJson(json, response) != DeserializationError::Ok) {
-                Serial.println("json deserialization error");
-                ret = false;
-            } else {
-                strncpy(refresh_token, (json)["refresh_token"].as<String>().c_str(), CLI_MAX_CHARS);
-                ret = true;
-            }
+            ret = get_refresh_token(auth_b64, refresh_token);
 
             break;
         }

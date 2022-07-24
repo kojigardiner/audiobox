@@ -8,7 +8,7 @@
 #include "Spotify.h"
 #include "Utils.h"
 
-void setup_cli() {
+void start_cli() {
     CLIMenu menu_main, menu_wifi, menu_spotify, menu_clear_prefs;
 
     // Main
@@ -46,15 +46,15 @@ void check_wifi_prefs() {
     Preferences prefs;
     prefs.begin(APP_NAME, false);
 
-    String wifi_ssid = prefs.getString(PREFS_WIFI_SSID_KEY, "");
-    prefs.end();
+    char wifi_ssid[CLI_MAX_CHARS];
 
     Serial.print("Current wifi network: ");
-    if (wifi_ssid == "") {
+    if (!prefs.getString(PREFS_WIFI_SSID_KEY, wifi_ssid, CLI_MAX_CHARS)) {
         Serial.println("*** not set ***");
     } else {
-        Serial.println(wifi_ssid.c_str());
+        Serial.println(wifi_ssid);
     }
+    prefs.end();
 }
 
 void set_wifi_prefs() {
@@ -66,7 +66,9 @@ void set_wifi_prefs() {
 }
 
 void set_spotify_client_id() {
-    String auth_b64;
+    char client_id[CLI_MAX_CHARS];
+    char client_secret[CLI_MAX_CHARS];
+    char auth_b64[CLI_MAX_CHARS];
     int stored;
 
     Preferences prefs;
@@ -75,7 +77,13 @@ void set_spotify_client_id() {
     set_pref(&prefs, PREFS_SPOTIFY_CLIENT_ID_KEY);
     set_pref(&prefs, PREFS_SPOTIFY_CLIENT_SECRET_KEY);
 
-    auth_b64 = compute_auth_b64(prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY, ""), prefs.getString(PREFS_SPOTIFY_CLIENT_SECRET_KEY, ""));
+    if (!prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY, client_id, CLI_MAX_CHARS) ||
+        !prefs.getString(PREFS_SPOTIFY_CLIENT_SECRET_KEY, client_secret, CLI_MAX_CHARS)) {
+        Serial.println("Failed to retrieve Spotify credentials");
+        return;
+    }
+
+    compute_auth_b64(client_id, client_secret, auth_b64);
     Serial.print("Storing: ");
     Serial.println(auth_b64);
     stored = prefs.putString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64);
@@ -92,16 +100,22 @@ void set_spotify_client_id() {
 
 void set_spotify_account() {
     char refresh_token[CLI_MAX_CHARS];
-
-    connect_wifi();
+    char client_id[CLI_MAX_CHARS];
+    char auth_b64[CLI_MAX_CHARS];
 
     Preferences prefs;
     prefs.begin(APP_NAME, false);
 
-    if (Spotify::request_user_auth(
-            prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY, "").c_str(),
-            prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY, "").c_str(),
-            refresh_token)) {
+    if (!prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY, client_id, CLI_MAX_CHARS) ||
+        !prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64, CLI_MAX_CHARS)) {
+        Serial.println("Set Spotify client ID first!");
+        prefs.end();
+        return;
+    }
+
+    connect_wifi();
+
+    if (Spotify::request_user_auth(client_id, auth_b64, refresh_token)) {
         set_pref(&prefs, PREFS_SPOTIFY_REFRESH_TOKEN_KEY, refresh_token);
     } else {
         Serial.println("Request user authorization failed");
