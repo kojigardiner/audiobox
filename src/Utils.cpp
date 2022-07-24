@@ -101,9 +101,7 @@ void set_pref(Preferences *prefs, const char *key, const char *value) {
 // Return a base64 encoded username:password
 void compute_auth_b64(const char *user, const char *pass, char *auth_b64) {
     char combined[2 * CLI_MAX_CHARS + 1];
-    strncat(combined, user, CLI_MAX_CHARS);
-    strncat(combined, ":", 1);
-    strncat(combined, pass, CLI_MAX_CHARS);
+    snprintf(combined, CLI_MAX_CHARS, "%s:%s", user, pass);
 
     strncpy(auth_b64, base64::encode(combined).c_str(), CLI_MAX_CHARS);
 }
