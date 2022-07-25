@@ -48,11 +48,11 @@ void check_wifi_prefs() {
 
     char wifi_ssid[CLI_MAX_CHARS];
 
-    Serial.print("Current wifi network: ");
+    print("Current wifi network: ");
     if (!prefs.getString(PREFS_WIFI_SSID_KEY, wifi_ssid, CLI_MAX_CHARS)) {
-        Serial.println("*** not set ***");
+        print("*** not set ***\n");
     } else {
-        Serial.println(wifi_ssid);
+        print("%s\n", wifi_ssid);
     }
     prefs.end();
 }
@@ -79,13 +79,12 @@ void set_spotify_client_id() {
 
     if (!prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY, client_id, CLI_MAX_CHARS) ||
         !prefs.getString(PREFS_SPOTIFY_CLIENT_SECRET_KEY, client_secret, CLI_MAX_CHARS)) {
-        Serial.println("Failed to retrieve Spotify credentials");
+        print("Failed to retrieve Spotify credentials\n");
         return;
     }
 
     compute_auth_b64(client_id, client_secret, auth_b64);
-    Serial.print("Storing: ");
-    Serial.println(auth_b64);
+    print("Storing: %s\n", auth_b64);
     stored = prefs.putString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64);
     if (stored > 0) {
         // Serial.print("input length: ");
@@ -93,7 +92,7 @@ void set_spotify_client_id() {
         // Serial.print("bytes stored: ");
         // Serial.println(stored);
     } else {
-        Serial.println("Failed to store to preferences");
+        print("Failed to store to preferences\n");
     }
     prefs.end();
 }
@@ -108,7 +107,7 @@ void set_spotify_account() {
 
     if (!prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY, client_id, CLI_MAX_CHARS) ||
         !prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64, CLI_MAX_CHARS)) {
-        Serial.println("Set Spotify client ID first!");
+        print("Set Spotify client ID first!\n");
         prefs.end();
         return;
     }
@@ -118,7 +117,7 @@ void set_spotify_account() {
     if (Spotify::request_user_auth(client_id, auth_b64, refresh_token)) {
         set_pref(&prefs, PREFS_SPOTIFY_REFRESH_TOKEN_KEY, refresh_token);
     } else {
-        Serial.println("Request user authorization failed");
+        print("Request user authorization failed\n");
     }
     prefs.end();
 }
@@ -126,7 +125,7 @@ void set_spotify_account() {
 void clear_prefs() {
     Preferences prefs;
     prefs.begin(APP_NAME, false);
-    Serial.println("Clearing preferences");
+    print("Clearing preferences\n");
     prefs.clear();
     prefs.end();
 }

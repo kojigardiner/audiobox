@@ -1,11 +1,12 @@
 #include "LEDPanel.h"
 
 #include "LEDAudioPattern.h"
+#include "Utils.h"
 
 // Default constructor
 LEDPanel::LEDPanel(int width, int height, int num_leds, int led_pin, uint8_t brightness, bool serpentine, first_pixel_location_t first_pixel) {
     if (!serpentine || first_pixel != BOTTOM_LEFT) {
-        Serial.println("Error: Unsupported LEDPanel config!");
+        print("Error: Unsupported LEDPanel config!\n");
     }
 
     this->_w = width;

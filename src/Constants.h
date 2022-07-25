@@ -15,6 +15,7 @@ const char* const PREFS_SPOTIFY_CLIENT_SECRET_KEY = "sp_cli_sec";
 const char* const PREFS_SPOTIFY_AUTH_B64_KEY = "sp_auth_b64";
 const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 
+#define HTTP_MAX_CHARS 512    // max number of chars for http processing
 #define CLI_MAX_CHARS 256     // max number of chars for CLI input
 #define MAX_CLI_MENU_ITEMS 9  // max items per level of CLI
 #define MAX_CLI_MENU_TEXT 64  // max text length for CLI menu items
@@ -128,11 +129,11 @@ const uint8_t AUDIO_SERVO_POSITIONS[AUDIO_MODES_MAX] = {SERVO_NOISE_POS, SERVO_G
 
 // Macros
 #define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
-#define TIME_THIS(A)                            \
-    {                                           \
-        unsigned long last_micros = micros();   \
-        A;                                      \
-        Serial.println(micros() - last_micros); \
+#define TIME_THIS(A)                           \
+    {                                          \
+        unsigned long last_micros = micros();  \
+        A;                                     \
+        print("%d\n", micros() - last_micros); \
     }
 
 #define FASTLED_ALLOW_INTERRUPTS 0       // TODO: check if we still need this

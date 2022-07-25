@@ -4,6 +4,8 @@
 
 #include "Constants.h"
 #include "base64.h"
+#include "stdarg.h"
+#include "stdio.h"
 
 // Make sure all prefs with need to launch are present
 bool check_prefs() {
@@ -37,13 +39,12 @@ void connect_wifi() {
 
         prefs.begin(APP_NAME, true);
         if (!prefs.getString(PREFS_WIFI_SSID_KEY, wifi_ssid, CLI_MAX_CHARS) || !prefs.getString(PREFS_WIFI_PASS_KEY, wifi_pass, CLI_MAX_CHARS)) {
-            Serial.println("Failed to get wifi preferences!");
+            print("Failed to get wifi preferences!\n");
         }
         prefs.end();
 
         // WiFi Setup
-        Serial.print("Wifi connecting to ");
-        Serial.println(wifi_ssid);
+        print("Wifi connecting to %s", wifi_ssid);
         WiFi.mode(WIFI_STA);
         WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
         WiFi.setHostname(APP_NAME);
@@ -57,11 +58,9 @@ void connect_wifi() {
             delay(500);
         }
     }
-    Serial.print("connected\n");
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
-    Serial.print("RSSI: ");
-    Serial.println(WiFi.RSSI());
+    print("connected\n");
+    print("IP: %s\n", WiFi.localIP().toString().c_str());
+    print("RSSI: %d\n", WiFi.RSSI());
 }
 
 // Set a value in preference. Pass an optional "value" key to set that value, otherwise prompt the user
@@ -70,23 +69,18 @@ void set_pref(Preferences *prefs, const char *key, const char *value) {
     int stored;
 
     if (value == NULL) {
-        Serial.print("Enter new value for ");
-        Serial.print(key);
-        Serial.println(": ");
+        print("Enter new value for %s: ", key);
 
         get_input(rcvd);
-        Serial.print("Storing: ");
-        Serial.println(rcvd);
+        print("Storing: %s\n", rcvd);
         stored = prefs->putString(key, rcvd);
     } else {
-        Serial.print("For key: ");
-        Serial.println(key);
+        print("For key: %s\n", key);
 
-        Serial.print("Storing: ");
-        Serial.println(value);
+        print("Storing: %s\n", value);
         stored = prefs->putString(key, value);
     }
-    delay(1000);
+    delay(500);
 
     if (stored > 0) {
         // Serial.print("input length: ");
@@ -94,7 +88,7 @@ void set_pref(Preferences *prefs, const char *key, const char *value) {
         // Serial.print("bytes stored: ");
         // Serial.println(stored);
     } else {
-        Serial.println("Failed to store to preferences");
+        print("Failed to store to preferences\n");
     }
 }
 
@@ -116,14 +110,14 @@ int get_input(char *rcvd) {
     while (true) {
         if (Serial.available()) {
             c = Serial.read();
-            Serial.print(c);  // echo
+            print("%c", c);  // echo
 
             if (c != '\r') {           // ignore carriage return
                 if (c == '\n') {       // quit on line feed (new line) or max length
                     rcvd[idx] = '\0';  // null terminate
                     return idx;
                 } else if (idx == CLI_MAX_CHARS - 1) {
-                    Serial.println("WARNING: value entered is longer than maximum number of characters allowed!");
+                    Serial.print("WARNING: value entered is longer than maximum number of characters allowed!\n");
                     rcvd[idx] = '\0';  // null terminate
                     return idx;
                 } else {
@@ -133,4 +127,18 @@ int get_input(char *rcvd) {
             }
         }
     }
+}
+
+void print(const char *format, ...) {
+    static char buffer[CLI_MAX_CHARS];
+
+    va_list args;
+    va_start(args, format);
+
+    if (strlen(format) > (CLI_MAX_CHARS - 2)) Serial.println("WARNING! Printed text will be truncated!");
+    int ret = vsnprintf(buffer, CLI_MAX_CHARS, format, args);
+    if (ret < 0) Serial.println("WARNING! Print encoding failed!");
+    Serial.print(buffer);
+
+    va_end(args);
 }

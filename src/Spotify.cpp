@@ -4,10 +4,11 @@
 
 Spotify::Spotify(const char *client_id, const char *auth_b64, const char *refresh_token) {
     // don't run _get_token here, because we may not be connected to the network yet
-    _client_id = client_id;
-    _auth_b64 = auth_b64;
-    _refresh_token = refresh_token;
+    strncpy(_client_id, client_id, CLI_MAX_CHARS);
+    strncpy(_auth_b64, auth_b64, CLI_MAX_CHARS);
+    strncpy(_refresh_token, refresh_token, CLI_MAX_CHARS);
 
+    _album_art.data = NULL;
     _reset_variables();
 }
 
@@ -17,33 +18,37 @@ bool Spotify::get_refresh_token(const char *auth_b64, char *refresh_token) {
 
     // get the authorization code from the user
     char auth_code[CLI_MAX_CHARS];
-    Serial.print("\nCopy and paste the characters after \"code: \" on the webpage. Do not include the quotation (\") marks: ");
+    print("\nCopy and paste the characters after \"code: \" on the webpage. Do not include the quotation (\") marks: ");
     get_input(auth_code);
 
     http.begin(SPOTIFY_TOKEN_URL);
-    http.addHeader("Authorization", "Basic " + (String)auth_b64);
+
+    char auth_header[HTTP_MAX_CHARS];
+    snprintf(auth_header, HTTP_MAX_CHARS, "Basic %s", auth_b64);
+    http.addHeader("Authorization", auth_header);
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-    String request_data = "grant_type=authorization_code&code=" + (String)auth_code + "&redirect_uri=" + SPOTIFY_REDIRECT_URI;
+    char request_data[HTTP_MAX_CHARS];
+    snprintf(request_data, HTTP_MAX_CHARS, "grant_type=authorization_code&code=%s&redirect_uri=%s", auth_code, SPOTIFY_REDIRECT_URI);
 
     int httpCode = http.POST(request_data);
     String response = http.getString();
-    Serial.println(response);
+    print("%s\n", response.c_str());
     http.end();
 
     switch (httpCode) {
         case HTTP_CODE_OK: {
             DynamicJsonDocument json(20000);
             if (deserializeJson(json, response) != DeserializationError::Ok) {
-                Serial.println("json deserialization error");
+                print("json deserialization error\n");
                 ret = false;
             } else {
-                strncpy(refresh_token, (json)["refresh_token"].as<String>().c_str(), CLI_MAX_CHARS);
+                strncpy(refresh_token, (json)["refresh_token"].as<const char *>(), CLI_MAX_CHARS);
                 ret = true;
             }
             break;
         }
         default: {
-            Serial.println(String(httpCode) + ": Unrecognized error");
+            print("%d: Unrecognized error\n", httpCode);
             ret = false;
             break;
         }
@@ -56,12 +61,15 @@ bool Spotify::get_refresh_token(const char *auth_b64, char *refresh_token) {
 bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, char *refresh_token) {
     bool ret;
     HTTPClient http;
+    char url[HTTP_MAX_CHARS];
 
-    String url = SPOTIFY_AUTH_URL +
-                 "?client_id=" + client_id +
-                 "&response_type=code" +
-                 "&redirect_uri=" + SPOTIFY_REDIRECT_URI +
-                 "&scope=" + SPOTIFY_SCOPE;
+    snprintf(url, HTTP_MAX_CHARS,
+             "%s"
+             "?client_id=%s"
+             "&response_type=code"
+             "&redirect_uri=%s"
+             "&scope=%s",
+             SPOTIFY_AUTH_URL, client_id, SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPE);
 
     http.begin(url);
     int httpCode = http.GET();
@@ -72,16 +80,16 @@ bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, cha
     // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
     switch (httpCode) {
         case HTTP_CODE_SEE_OTHER: {
-            Serial.print("\nLaunch the following URL in your browser to authorize access: ");
-            Serial.println(payload);
-            Serial.println("\nAfter granting access, you will be redirected to a webpage.");
+            print("\nLaunch the following URL in your browser to authorize access: ");
+            print("%s\n", payload.c_str());
+            print("\nAfter granting access, you will be redirected to a webpage.\n");
 
             ret = get_refresh_token(auth_b64, refresh_token);
 
             break;
         }
         default:
-            Serial.println(String(httpCode) + ": Unrecognized error");
+            print("%d: Unrecognized error\n", httpCode);
             ret = false;
             break;
     }
@@ -105,7 +113,7 @@ void Spotify::update() {
         if (!_get_features()) {
             _reset_variables();
         } else {
-            print();
+            print_info();
         }
     }
 }
@@ -126,64 +134,57 @@ Spotify::album_art_t Spotify::get_album_art() {
 }
 
 // Prints variables related to current playing track
-void Spotify::print() {
-    Serial.print("\tTitle: ");
-    Serial.println(_track_title);
-    Serial.print("\tArtist: ");
-    Serial.println(_artists);
-    Serial.print("\tAlbum: ");
-    Serial.println(_album);
-    Serial.print("\tAlbum art: ");
-    Serial.println(_album_art.url);
-    Serial.print("\tAlbum art width: ");
-    Serial.println(_album_art.width);
-    Serial.print("\tDuration (ms): ");
-    Serial.println(_duration_ms);
-    Serial.print("\tProgress (ms): ");
-    Serial.println(_progress_ms);
-    Serial.print("\tPlaying: ");
-    Serial.println(_is_playing);
-    Serial.print("\tDevice: ");
-    Serial.println(_device);
-    Serial.print("\tType: ");
-    Serial.println(_device_type);
-    Serial.print("\tActive: ");
-    Serial.println(_is_active);
-    Serial.print("\tVolume: ");
-    Serial.println(_volume);
-    Serial.print("\tTempo: ");
-    Serial.println(_tempo);
-    Serial.print("\tEnergy: ");
-    Serial.println(_energy);
+void Spotify::print_info() {
+    print("\tTitle: %s\n", _track_title);
+    print("\tArtist: %s\n", _artists);
+    print("\tAlbum: %s\n", _album);
+    print("\tAlbum art: %s\n", _album_art.url);
+    print("\tAlbum art width: %d\n", _album_art.width);
+    print("\tDuration (ms): %d\n", _duration_ms);
+    print("\tProgress (ms): %d\n", _progress_ms);
+    print("\tPlaying: ");
+    _is_playing ? print("true\n") : print("false\n");
+    print("\tDevice: %s\n", _device);
+    print("\tType: %s\n", _device_type);
+    print("\tActive: ");
+    _is_active ? print("true\n") : print("false\n");
+    print("\tVolume: %d\n", _volume);
+    print("\tTempo: %f\n", _tempo);
+    print("\tEnergy: %f\n", _energy);
 }
 
 // Gets token for use with Spotify Web API
 bool Spotify::_get_token() {
     bool ret;
 
-    Serial.println("Getting Spotify token...");
+    print("Getting Spotify token...\n");
 
     HTTPClient http;
     http.begin(SPOTIFY_TOKEN_URL);
-    http.addHeader("Authorization", "Basic " + (String)_auth_b64);
+    char auth_header[HTTP_MAX_CHARS];
+    snprintf(auth_header, HTTP_MAX_CHARS, "Basic %s", _auth_b64);
+    http.addHeader("Authorization", auth_header);
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-    String request_data = "grant_type=refresh_token&refresh_token=" + (String)_refresh_token;
+
+    char request_data[HTTP_MAX_CHARS];
+    snprintf(request_data, HTTP_MAX_CHARS, "grant_type=refresh_token&refresh_token=%s", _refresh_token);
+
     int httpCode = http.POST(request_data);
 
     if (httpCode == HTTP_CODE_OK) {
         String payload = http.getString();
-        Serial.println(payload);
+        print("%s\n", payload.c_str());
 
         DynamicJsonDocument json(20000);
         if (deserializeJson(json, payload) != DeserializationError::Ok) {
-            Serial.println("json deserialization error");
+            print("json deserialization error\n");
             ret = false;
         } else {
-            _token = (json)["access_token"].as<String>();
+            strncpy(_token, (json)["access_token"].as<const char *>(), CLI_MAX_CHARS);
             ret = true;
         }
     } else {
-        Serial.println(String(httpCode) + ": Error retrieving token");
+        print("%d: Error retrieving token\n", httpCode);
         ret = false;
     }
 
@@ -200,7 +201,9 @@ bool Spotify::_get_player() {
     http.begin(SPOTIFY_PLAYER_URL);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Accept", "application/json");
-    http.addHeader("Authorization", "Bearer " + _token);
+    char bearer_header[HTTP_MAX_CHARS];
+    snprintf(bearer_header, HTTP_MAX_CHARS, "Bearer %s", _token);
+    http.addHeader("Authorization", bearer_header);
 
     int httpCode = http.GET();
     String payload = http.getString();
@@ -211,7 +214,7 @@ bool Spotify::_get_player() {
         case HTTP_CODE_OK: {
             DynamicJsonDocument json(20000);
             if (deserializeJson(json, payload) != DeserializationError::Ok) {
-                Serial.println("json deserialization error");
+                print("json deserialization error\n");
                 ret = false;
             } else {
                 _parse_json(&json);
@@ -222,24 +225,24 @@ bool Spotify::_get_player() {
             break;
         }
         case HTTP_CODE_NO_CONTENT:
-            Serial.println(String(httpCode) + ": Playback not available/active");
+            print("%d: Playback not available/active\n", httpCode);
             _token_expired = false;
             ret = false;
             break;
         case HTTP_CODE_BAD_REQUEST:
         case HTTP_CODE_UNAUTHORIZED:
         case HTTP_CODE_FORBIDDEN:
-            Serial.println(String(httpCode) + ": Bad/expired token or OAuth request");
+            print("%d: Bad/expired token or OAuth request\n", httpCode);
             _token_expired = true;
             ret = false;
             break;
         case HTTP_CODE_TOO_MANY_REQUESTS:
-            Serial.println(String(httpCode) + ": Exceeded rate limits");
+            print("%d: Exceeded rate limits\n", httpCode);
             _token_expired = false;
             ret = false;
             break;
         default:
-            Serial.println(String(httpCode) + ": Unrecognized error");
+            print("%d: Unrecognized error\n", httpCode);
             _token_expired = true;
             ret = false;
             break;
@@ -252,11 +255,15 @@ bool Spotify::_get_player() {
 bool Spotify::_get_features() {
     bool ret;
     HTTPClient http;
+    char features[HTTP_MAX_CHARS];
 
-    http.begin(SPOTIFY_FEATURES_URL + "/" + _track_id);
+    snprintf(features, HTTP_MAX_CHARS, "%s/%s", SPOTIFY_FEATURES_URL, _track_id);
+    http.begin(features);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Accept", "application/json");
-    http.addHeader("Authorization", "Bearer " + _token);
+    char bearer_header[HTTP_MAX_CHARS];
+    snprintf(bearer_header, HTTP_MAX_CHARS, "Bearer %s", _token);
+    http.addHeader("Authorization", bearer_header);
 
     int httpCode = http.GET();
     String payload = http.getString();
@@ -266,7 +273,7 @@ bool Spotify::_get_features() {
         case HTTP_CODE_OK: {
             DynamicJsonDocument json(20000);
             if (deserializeJson(json, payload) != DeserializationError::Ok) {
-                Serial.println("json deserialization error");
+                print("json deserialization error\n");
                 ret = false;
             } else {
                 _tempo = json["tempo"].as<float>();
@@ -278,7 +285,7 @@ bool Spotify::_get_features() {
             break;
         }
         case HTTP_CODE_NO_CONTENT:
-            Serial.println(String(httpCode) + ": Playback not available/active");
+            print("%d: Playback not available/active\n", httpCode);
             _is_active = false;
             _is_playing = false;
             _token_expired = false;
@@ -287,17 +294,17 @@ bool Spotify::_get_features() {
         case HTTP_CODE_BAD_REQUEST:
         case HTTP_CODE_UNAUTHORIZED:
         case HTTP_CODE_FORBIDDEN:
-            Serial.println(String(httpCode) + ": Bad/expired token or OAuth request");
+            print("%d: Bad/expired token or OAuth request\n", httpCode);
             _token_expired = true;
             ret = false;
             break;
         case HTTP_CODE_TOO_MANY_REQUESTS:
-            Serial.println(String(httpCode) + ": Exceeded rate limits");
+            print("%d: Exceeded rate limits\n", httpCode);
             _token_expired = false;
             ret = false;
             break;
         default:
-            Serial.println(String(httpCode) + ": Unrecognized error");
+            print("%d: Unrecognized error\n", httpCode);
             _token_expired = true;
             ret = false;
             break;
@@ -308,40 +315,45 @@ bool Spotify::_get_features() {
 
 // Parses json response from the Spotify Web API and stores results in member variables
 void Spotify::_parse_json(DynamicJsonDocument *json) {
-    String parsed_track_id = (*json)["item"]["id"].as<String>();
+    char parsed_track_id[CLI_MAX_CHARS];
+    strncpy(parsed_track_id, (*json)["item"]["id"].as<const char *>(), CLI_MAX_CHARS);
 
-    if (_track_id != parsed_track_id) {  // if the track has changed
+    if (strncmp(_track_id, parsed_track_id, CLI_MAX_CHARS) != 0) {  // if the track has changed
         _track_changed = true;
-        _track_id = parsed_track_id;
-        _track_title = (*json)["item"]["name"].as<String>();
-        _album = (*json)["item"]["album"]["name"].as<String>();
+        strncpy(_track_id, parsed_track_id, CLI_MAX_CHARS);
+        strncpy(_track_title, (*json)["item"]["name"].as<const char *>(), CLI_MAX_CHARS);
+        strncpy(_track_title, (*json)["item"]["name"].as<const char *>(), CLI_MAX_CHARS);
+        strncpy(_album, (*json)["item"]["album"]["name"].as<const char *>(), CLI_MAX_CHARS);
 
         JsonArray arr = (*json)["item"]["artists"].as<JsonArray>();
-        _artists = "";
+        strncpy(_artists, "", CLI_MAX_CHARS);
         for (JsonVariant value : arr) {
-            _artists += value["name"].as<String>() + " ";
+            snprintf(_artists, CLI_MAX_CHARS, "%s%s ", _artists, value["name"].as<const char *>());
         }
         _is_active = (*json)["device"]["is_active"].as<bool>();
-        _device_type = (*json)["device"]["type"].as<String>();
+        strncpy(_device_type, (*json)["device"]["type"].as<const char *>(), CLI_MAX_CHARS);
         _progress_ms = (*json)["progress_ms"].as<int>();
         _duration_ms = (*json)["item"]["duration_ms"].as<int>();
         _is_playing = (*json)["is_playing"].as<bool>();
-        _device = (*json)["device"]["name"].as<String>();
+        strncpy(_device, (*json)["device"]["name"].as<const char *>(), CLI_MAX_CHARS);
         _volume = (*json)["device"]["volume_percent"].as<int>();
 
-        int art_url_count = (*json)["item"]["album"]["images"].size();                                      // count number of album art URLs
-        String parsed_art_url = (*json)["item"]["album"]["images"][art_url_count - 1]["url"].as<String>();  // the last one is the smallest, typically 64x64
-        parsed_art_url.replace("https", "http");                                                            // needed to eliminate SSL handshake errors
+        int art_url_count = (*json)["item"]["album"]["images"].size();  // count number of album art URLs
+        char parsed_art_url[CLI_MAX_CHARS];
+        strncpy(parsed_art_url, (*json)["item"]["album"]["images"][art_url_count - 1]["url"].as<const char *>(), CLI_MAX_CHARS);  // the last one is the smallest, typically 64x64
 
-        if (_album_art.url != parsed_art_url) {  // if the art url has changed
-            _album_art.url = parsed_art_url;
+        // replace https with http, needed to eliminate SSL handshake errors
+        _replace_https_with_http(parsed_art_url);
+
+        if (strncmp(_album_art.url, parsed_art_url, CLI_MAX_CHARS) != 0) {  // if the art url has changed
+            strncpy(_album_art.url, parsed_art_url, CLI_MAX_CHARS);
             _album_art.changed = true;
 
             _album_art.width = (*json)["item"]["album"]["images"][art_url_count - 1]["width"].as<int>();
             _album_art.loaded = false;
 
             if (_album_art.url == NULL) {
-                _track_id = "";  // force next loop to check json again
+                strncpy(_track_id, "", CLI_MAX_CHARS);  // force next loop to check json again
             } else {
                 _get_art();
             }
@@ -360,7 +372,7 @@ void Spotify::_parse_json(DynamicJsonDocument *json) {
 bool Spotify::_get_art() {
     bool ret;
     int start_ms = millis();
-    Serial.println("Downloading " + _album_art.url);
+    print("Downloading %s\n", _album_art.url);
 
     HTTPClient http;
     http.begin(_album_art.url);
@@ -375,14 +387,14 @@ bool Spotify::_get_art() {
 
         // Allocate memory in heap for the downloaded data
         if (_album_art.data != NULL) {
-            Serial.println("Free heap prior to free: " + String(ESP.getFreeHeap()));
+            print("Free heap prior to free: %d\n", ESP.getFreeHeap());
             free(_album_art.data);  // if not NULL, we have previously allocated memory and should free it
         }
-        Serial.println("Free heap prior to malloc: " + String(ESP.getFreeHeap()));
+        print("Free heap prior to malloc: %d\n", ESP.getFreeHeap());
         _album_art.data = (uint8_t *)malloc(_album_art.num_bytes * sizeof(*(_album_art.data)));  // dereference the art_data pointer to get the size of each element (uint8_t)
 
         if (_album_art.data == NULL) {
-            Serial.println("Not enough heap for malloc");
+            print("Not enough heap for malloc\n");
             _album_art.loaded = false;
             ret = false;
         } else {
@@ -419,13 +431,13 @@ bool Spotify::_get_art() {
             // Serial.println();
             // Serial.print("[HTTP] connection closed or file end.\n");
             _album_art.loaded = true;
-            Serial.println(String(millis() - start_ms) + "ms to download art");
+            print("%dms to download art\n", millis() - start_ms);
             ret = true;
         }
     }
     // f.close();
     else {
-        Serial.println(String(httpCode) + ": Unrecognized error");
+        print("%d: Unrecognized error\n", httpCode);
         _album_art.loaded = false;
         ret = false;
     }
@@ -438,19 +450,19 @@ void Spotify::_reset_variables() {
     _progress_ms = 0;
     _duration_ms = 0;
     _volume = 0;
-    _track_id = "";
-    _artists = "";
-    _track_title = "";
-    _album = "";
-    _device = "";
-    _device_type = "";
+    strncpy(_track_id, "", CLI_MAX_CHARS);
+    strncpy(_artists, "", CLI_MAX_CHARS);
+    strncpy(_track_title, "", CLI_MAX_CHARS);
+    strncpy(_album, "", CLI_MAX_CHARS);
+    strncpy(_device, "", CLI_MAX_CHARS);
+    strncpy(_device_type, "", CLI_MAX_CHARS);
     _is_active = false;
     _is_playing = false;
     _tempo = 0.0;
     _energy = 0.0;
     _track_changed = false;
 
-    _album_art.url = "";
+    strncpy(_album_art.url, "", CLI_MAX_CHARS);
     _album_art.width = 0;
     if (_album_art.data != NULL) {
         free(_album_art.data);
@@ -459,4 +471,13 @@ void Spotify::_reset_variables() {
     _album_art.num_bytes = 0;
     _album_art.loaded = false;
     _album_art.changed = false;
+}
+
+void Spotify::_replace_https_with_http(char *url) {
+    char *https = strstr(url, "https");  // get pointer to https
+    if (https != NULL) {
+        for (char *c = https + strlen("http"); *(c) != '\0'; c++) {
+            *(c) = *(c + 1);
+        }
+    }
 }

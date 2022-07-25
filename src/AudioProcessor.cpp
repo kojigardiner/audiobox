@@ -1,5 +1,7 @@
 #include "AudioProcessor.h"
 
+#include "Utils.h"
+
 // Constructor to define FFT post-processing
 AudioProcessor::AudioProcessor(bool white_noise_eq, bool a_weighting_eq, bool perceptual_binning, bool volume_scaling) {
     _WHITE_NOISE_EQ = white_noise_eq;
@@ -46,7 +48,7 @@ void AudioProcessor::_i2s_init() {
     i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
     i2s_set_pin(I2S_PORT, &pin_config);
 
-    Serial.print("Audio I2S init complete\n");
+    print("Audio I2S init complete\n");
 }
 
 void AudioProcessor::_init_variables() {
@@ -70,7 +72,7 @@ void AudioProcessor::_init_variables() {
     _avg_volume = 0;
     _avg_peak_volume = 0;
 
-    Serial.print("Audio processor variables initialized\n");
+    print("Audio processor variables initialized\n");
 }
 
 /*** Get audio data from I2S mic ***/
@@ -94,7 +96,7 @@ void AudioProcessor::get_audio_samples() {
     // Check that we got the correct number of samples
     samples_read = int(int(bytes_read) / sizeof(buffer[0]));  // since a sample is 32 bits (4 bytes)
     if (int(samples_read) != samples_to_read) {
-        Serial.println("Warning: " + String(int(samples_read)) + " audio samples read, " + String(samples_to_read) + " expected!");
+        print("Warning: %d audio samples read, %d expected!\n", int(samples_read), int(samples_to_read));
     }
 
     uint8_t bit_shift_amount = 32 - I2S_MIC_BIT_DEPTH;
@@ -137,7 +139,7 @@ void AudioProcessor::get_audio_samples_gapless() {
     // Check that we got the correct number of samples
     samples_read = int(int(bytes_read) / sizeof(buffer[0]));  // since a sample is 32 bits (4 bytes)
     if (int(samples_read) != samples_to_read) {
-        Serial.println("Warning: " + String(int(samples_read)) + " audio samples read, " + String(samples_to_read) + " expected!");
+        print("Warning: %d audio samples read, %d expected!\n", int(samples_read), int(samples_to_read));
     }
 
     uint8_t bit_shift_amount = 32 - I2S_MIC_BIT_DEPTH;
@@ -210,7 +212,7 @@ void AudioProcessor::_setup_audio_bins() {
 
     if (highest_freq > nyquist_freq) {
         highest_freq = int(nyquist_freq);
-        Serial.println("WARNING: highest frequency bin set to Nyquist, " + String(highest_freq));
+        print("WARNING: highest frequency bin set to Nyquist, %f\n", highest_freq);
     }
 
     double freq_mult_per_band = pow(double(highest_freq) / lowest_freq, 1.0 / (NUM_AUDIO_BANDS - 1));
@@ -221,10 +223,10 @@ void AudioProcessor::_setup_audio_bins() {
     // We want to be conservative here and not pick up too much out-of-band noise. So use ceil and floor
     _lowest_bass_bin = int(ceil(LOWEST_BASS_FREQ / bin_width) - 1);
     _highest_bass_bin = int(floor(HIGHEST_BASS_FREQ / bin_width) - 1);
-    Serial.println("lowest bass bin = " + String(_lowest_bass_bin) + ", lowest bass freq = " + String(((_lowest_bass_bin + 1) * bin_width)));
-    Serial.println("highest bass bin = " + String(_highest_bass_bin) + ", highest bass freq = " + String(((_highest_bass_bin + 1) * bin_width)));
+    print("lowest bass bin = %d, lowest bass freq = %f\n", _lowest_bass_bin, (_lowest_bass_bin + 1) * bin_width);
+    print("highest bass bin = %d, highest bass freq = %f\n", _highest_bass_bin, (_highest_bass_bin + 1) * bin_width);
 
-    Serial.print(String(freq_mult_per_band) + "," + String(nyquist_freq) + "," + String(bin_width) + "," + String(nbins) + "\n");
+    print("freq_mult_per_band: %f, nyq_freq: %f, bin_width: %f, num_bins: %d\n", freq_mult_per_band, nyquist_freq, bin_width, int(round(nbins)));
 
     for (int band = 0; band < NUM_AUDIO_BANDS; band++) {
         _bin_freqs[band] = lowest_freq * pow(freq_mult_per_band, band);
@@ -242,7 +244,7 @@ void AudioProcessor::_setup_audio_bins() {
     _low_bins[0] = 0;
 
     for (int i = 0; i < NUM_AUDIO_BANDS; i++) {
-        Serial.print(String(int(round(_bin_freqs[i]))) + "," + String(int(round(_low_bins[i]))) + "," + String(int(round(_high_bins[i]))) + "\n");
+        print("%d, %d, %d\n", int(round(_bin_freqs[i])), int(round(_low_bins[i])), int(round(_high_bins[i])));
     }
 }
 
@@ -459,10 +461,10 @@ void AudioProcessor::calc_intensity_simple() {
 
 void AudioProcessor::print_double_array(double *arr, int len) {
     for (int i = 0; i < len; i++) {
-        Serial.print(arr[i]);
-        Serial.print(",");
+        print("%f", arr[i]);
+        print(",");
     }
-    Serial.print("\n");
+    print("\n");
 }
 
 int *AudioProcessor::get_intensity() {
@@ -491,7 +493,7 @@ void AudioProcessor::_clear_fft_bin() {
 
 void AudioProcessor::_interpolate_fft(int old_length, int new_length) {
     if (new_length > NUM_LEDS) {
-        Serial.println("WARNING: trying to interpolate into _fft_interp array that is too small!");
+        print("WARNING: trying to interpolate into _fft_interp array that is too small!\n");
     }
 
     // TODO: there is a lot of repeated code here, refactor it
@@ -557,6 +559,6 @@ void AudioProcessor::_interpolate_fft(int old_length, int new_length) {
             _fft_interp[i] = interp_val;
         }
     } else {
-        Serial.println("ERROR: interpolate_fft() failed, should not have gotten here");
+        print("ERROR: interpolate_fft() failed, should not have gotten here\n");
     }
 }

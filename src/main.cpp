@@ -83,11 +83,11 @@ void setup() {
 
     esp_sleep_enable_ext0_wakeup(PIN_POWER_SWITCH, LOW);  // setup wake from sleep
     if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
-        Serial.println("Switch is high, going to sleep");
+        print("Switch is high, going to sleep\n");
         esp_deep_sleep_start();  // go to sleep if switch is high
     }
 
-    Serial.print("Initial safety delay\n");
+    print("Initial safety delay\n");
     delay(500);  // power-up safety delay to avoid brown out
 
     // Drop into debug CLI if button is depressed
@@ -96,32 +96,32 @@ void setup() {
         start_cli();
     }
 
-    Serial.print("Loading preferences\n");
+    print("Loading preferences\n");
 
     if (!check_prefs()) {
-        Serial.println("Missing preferences! Power off and power on while pressing the main button to configure preferences.");
+        print("Missing preferences! Power off and power on while pressing the main button to configure preferences.\n");
     }
 
     // Wifi setup
     connect_wifi();
 
     // JPG decoder setup
-    Serial.print("Setting up JPG decoder\n");
+    print("Setting up JPG decoder\n");
     TJpgDec.setJpgScale(1);              // Assuming 64x64 image, will rescale to 16x16
     TJpgDec.setCallback(copy_jpg_data);  // The decoder must be given the exact name of the rendering function above
 
     // Filessystem setup
-    Serial.print("Setting up filesystem\n");
+    print("Setting up filesystem\n");
     if (!SPIFFS.begin(true)) {
-        Serial.println("An Error has occurred while mounting SPIFFS");
+        print("An Error has occurred while mounting SPIFFS\n");
         return;
     }
 
     // LED Setup
-    Serial.println("Setting up LEDs");
+    print("Setting up LEDs\n");
     lp.init();
 
-    Serial.print("Setup complete\n\n");
+    print("Setup complete\n\n");
 
     // Turn on button LED to indicate setup is complete
     digitalWrite(PIN_BUTTON_LED, HIGH);
@@ -200,8 +200,8 @@ void show_leds() {
 }
 
 void task_display_code(void *parameter) {
-    Serial.print("task_display_code running on core ");
-    Serial.println(xPortGetCoreID());
+    print("task_display_code running on core ");
+    print("%d\n", xPortGetCoreID());
 
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = (1000.0 / FPS) / portTICK_RATE_MS;
@@ -231,7 +231,7 @@ void task_display_code(void *parameter) {
             xSemaphoreTake(mutex_leds, portMAX_DELAY);
 
             vTaskDelay(((SERVO_ART_POS - SERVO_NOISE_POS) * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
-            Serial.println("Switch is high, going to sleep");
+            print("Switch is high, going to sleep\n");
             FastLED.clear(true);
             esp_deep_sleep_start();
         }
@@ -242,25 +242,25 @@ void task_display_code(void *parameter) {
                 case ButtonFSM::MOMENTARY_TRIGGERED:  // change the sub-mode
                     switch (modes.display.get_mode()) {
                         case DISPLAY_ART:
-                            Serial.println("Changing art display type");
+                            print("Changing art display type\n");
                             modes.art.cycle_mode();
                             break;
                         case DISPLAY_AUDIO:
-                            Serial.println("Changing audio display type");
+                            print("Changing audio display type\n");
                             modes.audio.cycle_mode();
                             break;
                     }
                     break;
 
                 case ButtonFSM::HOLD_TRIGGERED:  // change the main mode
-                    Serial.println("Changing display mode");
+                    print("Changing display mode\n");
                     modes.display.cycle_mode();
                     break;
             }
         }
 
         if (modes.display.mode_elapsed()) {
-            Serial.println("Timer elapsed, cycling display mode");
+            print("Timer elapsed, cycling display mode\n");
             modes.display.cycle_mode();
         }
 
@@ -336,8 +336,8 @@ void task_display_code(void *parameter) {
 }
 
 void task_audio_code(void *parameter) {
-    Serial.print("task_audio_code running on core ");
-    Serial.println(xPortGetCoreID());
+    print("task_audio_code running on core ");
+    print("%d\n", xPortGetCoreID());
 
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = ((FFT_SAMPLES / 2.0) / I2S_SAMPLE_RATE * 1000) / portTICK_RATE_MS;
@@ -418,15 +418,23 @@ void run_audio(AudioProcessor *ap, int audio_mode) {
 }
 
 void task_spotify_code(void *parameter) {
-    Serial.print("task_spotify_code running on core ");
-    Serial.println(xPortGetCoreID());
+    print("task_spotify_code running on core ");
+    print("%d\n", xPortGetCoreID());
 
     Preferences prefs;
     prefs.begin(APP_NAME);
-    Spotify sp = Spotify(
-        prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY).c_str(),
-        prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY).c_str(),
-        prefs.getString(PREFS_SPOTIFY_REFRESH_TOKEN_KEY).c_str());
+
+    char client_id[CLI_MAX_CHARS];
+    char auth_b64[CLI_MAX_CHARS];
+    char refresh_token[CLI_MAX_CHARS];
+
+    if (!prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY, client_id, CLI_MAX_CHARS) ||
+        !prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64, CLI_MAX_CHARS) ||
+        !prefs.getString(PREFS_SPOTIFY_REFRESH_TOKEN_KEY, refresh_token, CLI_MAX_CHARS)) {
+        print("Spotify credentials not found!\n");
+    }
+
+    Spotify sp = Spotify(client_id, auth_b64, refresh_token);
     prefs.end();
 
     for (;;) {
@@ -438,7 +446,7 @@ void task_spotify_code(void *parameter) {
             }
             xQueueSend(q_spotify, &sp, 0);  // set timeout to zero so loop will continue until display is updated
         } else {
-            Serial.println("Error: WiFi not connected! status = " + String(WiFi.status()));
+            print("Error: WiFi not connected! status = %d\n", WiFi.status());
         }
         vTaskDelay(SPOTIFY_CYCLE_TIME_MS / portTICK_RATE_MS);
     }
@@ -446,8 +454,8 @@ void task_spotify_code(void *parameter) {
 }
 
 void task_buttons_code(void *parameter) {
-    Serial.print("task_buttons_code running on core ");
-    Serial.println(xPortGetCoreID());
+    print("task_buttons_code running on core ");
+    print("%d\n", xPortGetCoreID());
 
     ButtonFSM button_fsm = ButtonFSM(PIN_BUTTON_MODE);
     ButtonFSM::button_fsm_state_t button_state;
@@ -460,13 +468,13 @@ void task_buttons_code(void *parameter) {
             xQueueSend(q_button_to_display, &button_state, 0);
             xQueueSend(q_button_to_audio, &button_state, 0);
 
-            Serial.println("Hold button");
+            print("Hold button\n");
         }
         if (button_state == ButtonFSM::MOMENTARY_TRIGGERED) {  // move the servos
             xQueueSend(q_button_to_display, &button_state, 0);
             xQueueSend(q_button_to_audio, &button_state, 0);
 
-            Serial.println("Momentary button");
+            print("Momentary button\n");
         }
         // Serial.println(uxTaskGetStackHighWaterMark(NULL));
         vTaskDelay(BUTTON_FSM_CYCLE_TIME_MS / portTICK_RATE_MS);  // added to avoid starving other tasks
@@ -475,12 +483,12 @@ void task_buttons_code(void *parameter) {
 }
 
 void task_servo_code(void *parameter) {
-    Serial.print("task_servo_code running on core ");
-    Serial.println(xPortGetCoreID());
+    print("task_servo_code running on core ");
+    print("%d\n", xPortGetCoreID());
 
     // Servo Setup
     Servo myservo;
-    Serial.print("Setting up servo\n");
+    print("Setting up servo\n");
     myservo.write(SERVO_NOISE_POS);  // Set servo zero position prior to attaching in order to mitigate power-on glitch
     myservo.attach(PIN_SERVO, SERVO_MIN_US, SERVO_MAX_US);
     // servo_pos = myservo.read();  // Determine where the servo is -- Note: this will always report 82, regardless of where servo actually is.
@@ -513,10 +521,7 @@ void task_servo_code(void *parameter) {
 #else
         q_return = xQueueReceive(q_servo, &target_pos, 0);  // check if there is a new value in the queue
         if ((q_return == pdTRUE) && (curr_pos != target_pos)) {
-            Serial.print("Current servo pos: ");
-            Serial.println(curr_pos);
-            Serial.print("Requested servo pos: ");
-            Serial.println(target_pos);
+            // println("Current servo pos: %d, Requested servo pos: %d", curr_pos, target_pos);
         }
 #endif
         target_pos = constrain(target_pos, SERVO_MIN_POS, SERVO_MAX_POS);
@@ -608,15 +613,15 @@ bool copy_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitma
 
 // Decode art from jpg into full_art, and calculate palette
 void decode_art(uint8_t *art_data, unsigned long art_num_bytes) {
-    Serial.println("Decoding art, " + String(art_num_bytes) + " bytes");
+    print("Decoding art, %d bytes\n", art_num_bytes);
     TJpgDec.drawJpg(0, 0, art_data, art_num_bytes);  // decode and copy jpg data into full_art
 
     // Calculate color palette
     uint8_t palette_results_rgb888[PALETTE_ENTRIES][3] = {0};
     mean_cut((uint16_t *)album_art.palette_art_rgb565, 16 * 16, MEAN_CUT_DEPTH, (uint8_t *)palette_results_rgb888);
-    Serial.println("Finished mean cut, printing returned results");
+    print("Finished mean cut, printing returned results\n");
     for (int i = 0; i < PALETTE_ENTRIES; i++) {
-        Serial.println(String(palette_results_rgb888[i][0]) + "," + String(palette_results_rgb888[i][1]) + "," + String(palette_results_rgb888[i][2]));
+        print("%d, %d, %d\n", palette_results_rgb888[i][0], palette_results_rgb888[i][1], palette_results_rgb888[i][2]);
         uint8_t r8 = round(pow(float(palette_results_rgb888[i][0]) / 255, LED_GAMMA_R / JPG_GAMMA) * 255);
         uint8_t g8 = round(pow(float(palette_results_rgb888[i][1]) / 255, LED_GAMMA_G / JPG_GAMMA) * 255);
         uint8_t b8 = round(pow(float(palette_results_rgb888[i][2]) / 255, LED_GAMMA_B / JPG_GAMMA) * 255);

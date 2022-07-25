@@ -29,20 +29,16 @@ void CLIMenu::run_cli() {
 
 // Display the menu on the command line
 void CLIMenu::show() {
-    Serial.print("\n");
-    Serial.println(this->_text);
+    print("\n%s\n", this->_text);
 
     for (int i = 0; i < this->_nitems; i++) {
-        Serial.print("\t");
-        Serial.print(i + 1);
-        Serial.print(". ");
-        Serial.println(this->_items[i].get_desc());
+        print("\t%d. %s\n", i + 1, this->_items[i].get_desc());
     }
-    Serial.print("\t0. ");
+    print("\t0. ");
     if (this->_prev == 0) {
-        Serial.println("Exit");
+        print("Exit\n");
     } else {
-        Serial.println("Return");
+        print("Return\n");
     }
 }
 
@@ -54,7 +50,7 @@ bool CLIMenu::run_command(int i) {
     } else if (i == 0) {  // exit
         return false;
     } else {
-        Serial.println("Invalid selection");
+        print("Invalid selection\n");
     }
     return true;
 }

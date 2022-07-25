@@ -7,12 +7,12 @@
 
 #include "Constants.h"
 
-const String SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize";
-const String SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
-const String SPOTIFY_REDIRECT_URI = "http%3A%2F%2Fhttpbin.org%2Fanything";
-const String SPOTIFY_SCOPE = "user-read-playback-state+user-read-playback-position";  //+user-modify-playback-state"
-const String SPOTIFY_PLAYER_URL = "https://api.spotify.com/v1/me/player";
-const String SPOTIFY_FEATURES_URL = "https://api.spotify.com/v1/audio-features";
+const char SPOTIFY_AUTH_URL[] = "https://accounts.spotify.com/authorize";
+const char SPOTIFY_TOKEN_URL[] = "https://accounts.spotify.com/api/token";
+const char SPOTIFY_REDIRECT_URI[] = "http%3A%2F%2Fhttpbin.org%2Fanything";
+const char SPOTIFY_SCOPE[] = "user-read-playback-state+user-read-playback-position";  //+user-modify-playback-state"
+const char SPOTIFY_PLAYER_URL[] = "https://api.spotify.com/v1/me/player";
+const char SPOTIFY_FEATURES_URL[] = "https://api.spotify.com/v1/audio-features";
 
 class Spotify {
    public:
@@ -24,7 +24,7 @@ class Spotify {
     struct album_art_t {
         bool loaded;
         bool changed;
-        String url;
+        char url[CLI_MAX_CHARS];
         uint16_t width;
         uint8_t *data;
         unsigned long num_bytes;
@@ -42,7 +42,7 @@ class Spotify {
     void update();
 
     // Print the details of current Spotify playback to Serial
-    void print();
+    void print_info();
 
     // Return a value from 0 to 1.0 that indicates the progress in the current track
     double get_track_progress();
@@ -74,35 +74,32 @@ class Spotify {
     // Reset member variables to default values
     void _reset_variables();
 
+    // Helper function to workaround https memory issue
+    void _replace_https_with_http(char *url);
+
     // Variables
-    bool _token_expired = true;
-    String _token = "";
-    String _refresh_token;
-    String _client_id;
-    String _auth_b64;
+    bool _token_expired;
+    char _token[CLI_MAX_CHARS];
+    char _refresh_token[CLI_MAX_CHARS];
+    char _client_id[CLI_MAX_CHARS];
+    char _auth_b64[CLI_MAX_CHARS];
 
-    unsigned long _progress_ms = 0;
-    unsigned long _duration_ms = 0;
-    uint8_t _volume = 0;
-    String _track_id = "";
-    String _artists = "";
-    String _track_title = "";
-    String _album = "";
-    String _device = "";
-    String _device_type = "";
-    bool _is_active = false;
-    bool _is_playing = false;
-    double _tempo = 0.0;
-    double _energy = 0.0;
-    bool _track_changed = false;
+    unsigned long _progress_ms;
+    unsigned long _duration_ms;
+    uint8_t _volume;
+    char _track_id[CLI_MAX_CHARS];
+    char _artists[CLI_MAX_CHARS];
+    char _track_title[CLI_MAX_CHARS];
+    char _album[CLI_MAX_CHARS];
+    char _device[CLI_MAX_CHARS];
+    char _device_type[CLI_MAX_CHARS];
+    bool _is_active;
+    bool _is_playing;
+    double _tempo;
+    double _energy;
+    bool _track_changed;
 
-    album_art_t _album_art{
-        .loaded = false,
-        .changed = false,
-        .url = "",
-        .width = 0,
-        .data = NULL,
-        .num_bytes = 0};
+    album_art_t _album_art;
 };
 
 #endif  // _SPOTIFY_H

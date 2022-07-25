@@ -1,6 +1,7 @@
 #include "MeanCut.h"
 
 #include "ArduinoSort.h"
+#include "Utils.h"
 
 // Takes an rgb565 value and and a pointer to an array of 3 uint8_t values in which to store the rgb888 equivalent
 void rgb565_to_rgb888(uint16_t rgb565_val, uint8_t *rgb888_arr) {
@@ -139,7 +140,7 @@ uint8_t rgb888_to_hue(rgb888_t rgb888) {
         hue = 60 * (4 + (r_norm - g_norm) / chroma);
     } else {
         // should never get here
-        Serial.println("Error in hue computation");
+        print("Error in hue computation\n");
     }
 
     return uint8_t(round(hue / 360.0 * 255));
