@@ -223,18 +223,6 @@ void task_display_code(void *parameter) {
     xLastWakeTime = xTaskGetTickCount();
 
     for (;;) {
-        // Check for power off
-        if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
-            int new_pos = SERVO_NOISE_POS;
-            xQueueSend(q_servo, &new_pos, 0);
-
-            xSemaphoreTake(mutex_leds, portMAX_DELAY);
-
-            vTaskDelay(((SERVO_ART_POS - SERVO_NOISE_POS) * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
-            print("Switch is high, going to sleep\n");
-            FastLED.clear(true);
-            esp_deep_sleep_start();
-        }
         // Check for button push and mode change
         q_return = xQueueReceive(q_button_to_display, &button_state, 0);  // get a new button state if one is available
         if (q_return == pdTRUE) {
@@ -359,44 +347,45 @@ void task_audio_code(void *parameter) {
 
     int last_audio_mode = -1;
     for (;;) {
-        q_return = xQueueReceive(q_mode, &modes, 0);  // check if there is a new mode, if not, we just use the last mode
+        if (ap.is_active()) {                             // don't run the loop if AP failed to init
+            q_return = xQueueReceive(q_mode, &modes, 0);  // check if there is a new mode, if not, we just use the last mode
 
-        if (modes.display.get_mode() == DISPLAY_AUDIO) {
-            int audio_mode = modes.audio.get_mode();
+            if (modes.display.get_mode() == DISPLAY_AUDIO) {
+                int audio_mode = modes.audio.get_mode();
 
-            int new_pos = AUDIO_SERVO_POSITIONS[audio_mode];
-            xQueueSend(q_servo, &new_pos, 0);  // move the servo
+                int new_pos = AUDIO_SERVO_POSITIONS[audio_mode];
+                xQueueSend(q_servo, &new_pos, 0);  // move the servo
 
-            run_audio(&ap, audio_mode);
+                run_audio(&ap, audio_mode);
 
-            xSemaphoreTake(mutex_leds, portMAX_DELAY);
-            // Blend with the last image on the led before we changed modes
-            if (blend_counter == 0) {  // if the counter reset to 0 it means we changed modes
-                lp.copy_leds(last_leds, NUM_LEDS);
-            }
-
-            if (last_audio_mode != audio_mode) {
-                lp.set_audio_pattern(audio_mode);
-            }
-            last_audio_mode = audio_mode;
-
-            lp.display_audio(ap.get_intensity());
-
-            if (blend_counter <= max_blend_count) {
-                for (int i = 0; i < NUM_LEDS; i++) {
-                    int blend_factor = int(round(pow(float(blend_counter) / max_blend_count, 2.2) * 255));
-                    lp.set(i, blend(last_leds[i], lp.get(i), blend_factor));
+                xSemaphoreTake(mutex_leds, portMAX_DELAY);
+                // Blend with the last image on the led before we changed modes
+                if (blend_counter == 0) {  // if the counter reset to 0 it means we changed modes
+                    lp.copy_leds(last_leds, NUM_LEDS);
                 }
-                blend_counter += 1;
+
+                if (last_audio_mode != audio_mode) {
+                    lp.set_audio_pattern(audio_mode);
+                }
+                last_audio_mode = audio_mode;
+
+                lp.display_audio(ap.get_intensity());
+
+                if (blend_counter <= max_blend_count) {
+                    for (int i = 0; i < NUM_LEDS; i++) {
+                        int blend_factor = int(round(pow(float(blend_counter) / max_blend_count, 2.2) * 255));
+                        lp.set(i, blend(last_leds[i], lp.get(i), blend_factor));
+                    }
+                    blend_counter += 1;
+                }
+
+                xSemaphoreGive(mutex_leds);
+                uint8_t done;
+                xQueueSend(q_audio_done, &done, 0);
+            } else {
+                blend_counter = 0;  // reset the blend counter
             }
-
-            xSemaphoreGive(mutex_leds);
-            uint8_t done;
-            xQueueSend(q_audio_done, &done, 0);
-        } else {
-            blend_counter = 0;  // reset the blend counter
         }
-
         vTaskDelay(1);  // TODO: check this
         // taskYIELD();  // yield first in case the next line doesn't actually delay
         // vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -461,6 +450,18 @@ void task_buttons_code(void *parameter) {
     ButtonFSM::button_fsm_state_t button_state;
 
     for (;;) {
+        // Check for power off
+        if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
+            int new_pos = SERVO_NOISE_POS;
+            xQueueSend(q_servo, &new_pos, 0);
+
+            xSemaphoreTake(mutex_leds, portMAX_DELAY);
+
+            vTaskDelay(((SERVO_ART_POS - SERVO_NOISE_POS) * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
+            print("Switch is high, going to sleep\n");
+            FastLED.clear(true);
+            esp_deep_sleep_start();
+        }
         button_fsm.advance();
         button_state = button_fsm.get_state();
 
@@ -517,11 +518,12 @@ void task_servo_code(void *parameter) {
                     target_pos -= 1;
                     break;
             }
+            print("Current servo pos: %d, Requested servo pos: %d\n", curr_pos, target_pos);
         }
 #else
         q_return = xQueueReceive(q_servo, &target_pos, 0);  // check if there is a new value in the queue
         if ((q_return == pdTRUE) && (curr_pos != target_pos)) {
-            // println("Current servo pos: %d, Requested servo pos: %d", curr_pos, target_pos);
+            print("Current servo pos: %d, Requested servo pos: %d\n", curr_pos, target_pos);
         }
 #endif
         target_pos = constrain(target_pos, SERVO_MIN_POS, SERVO_MAX_POS);

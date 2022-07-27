@@ -40,6 +40,9 @@ class AudioProcessor {
     // Return pointer to intensity array
     int *get_intensity();
 
+    // Return true if the audio processor initialization succeeded
+    bool is_active();
+
    private:
     // Methods
 
@@ -47,7 +50,7 @@ class AudioProcessor {
     void _init_variables();
 
     // Init I2S driver in ESP32
-    void _i2s_init();
+    bool _i2s_init();
 
     // Setup audio bins for use with calc_intensity_simple
     void _setup_audio_bins();
@@ -72,6 +75,8 @@ class AudioProcessor {
 
     // Detect a beat based on ongoing audio samples
     void _detect_beat();
+
+    bool _is_active = false;
 
     // Variables for FFT
     fft_config_t *_real_fft_plan;

@@ -9,7 +9,11 @@ AudioProcessor::AudioProcessor(bool white_noise_eq, bool a_weighting_eq, bool pe
     _PERCEPTUAL_BINNING = perceptual_binning;
     _VOLUME_SCALING = volume_scaling;
 
-    _i2s_init();
+    if (!_i2s_init()) {
+        _is_active = false;
+    } else {
+        _is_active = true;
+    }
     _init_variables();
     _real_fft_plan = fft_init(FFT_SAMPLES, FFT_REAL, FFT_FORWARD, _v_real, _v_imag);
 }
@@ -19,8 +23,13 @@ AudioProcessor::~AudioProcessor() {
     fft_destroy(_real_fft_plan);
 }
 
+// Return true if the audio processor initialization succeeded
+bool AudioProcessor::is_active() {
+    return _is_active;
+}
+
 /*** Initialize I2S for audio ADC ***/
-void AudioProcessor::_i2s_init() {
+bool AudioProcessor::_i2s_init() {
     i2s_config_t i2s_config = {
         .mode = i2s_mode_t(I2S_MODE_MASTER | I2S_MODE_RX),
         .sample_rate = I2S_SAMPLE_RATE,
@@ -45,10 +54,17 @@ void AudioProcessor::_i2s_init() {
     REG_SET_BIT(I2S_TIMING_REG(I2S_PORT), BIT(9));
     REG_SET_BIT(I2S_CONF_REG(I2S_PORT), I2S_RX_MSB_SHIFT);
 
-    i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
-    i2s_set_pin(I2S_PORT, &pin_config);
+    if (i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL) != ESP_OK) {
+        print("Audio Error (i2s_driver_install): Check that microphone is connected to Audio In port\n");
+        return false;
+    }
+    if (i2s_set_pin(I2S_PORT, &pin_config) != ESP_OK) {
+        print("Audio Error (i2s_set_pin): Check that microphone is connected to Audio In port\n");
+        return false;
+    }
 
     print("Audio I2S init complete\n");
+    return true;
 }
 
 void AudioProcessor::_init_variables() {

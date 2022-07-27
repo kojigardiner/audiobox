@@ -23,6 +23,7 @@ const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 #define PIN_LED_CONTROL 12  // LED strip control GPIO
 #define PIN_LED_STATUS 2    // Status LED on HiLetgo board
 #define PIN_BUTTON_MODE 14
+#define PIN_BUTTON2_MODE 22
 // #define PIN_BUTTON_UP       26
 // #define PIN_BUTTON_DOWN     27
 #define PIN_I2S_BCK 5
@@ -30,7 +31,8 @@ const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 #define PIN_I2S_WS 16
 #define PIN_SERVO 18
 #define PIN_BUTTON_LED 27
-#define PIN_POWER_SWITCH GPIO_NUM_13
+#define PIN_POWER_SWITCH GPIO_NUM_13  // GPIO number used as wakeup source. Only GPIOs which are have RTC
+                                      // functionality can be used: 0,2,4,12-15,25-27,32-39.
 
 #define MAX_BRIGHT 100  // sets max brightness for LEDs
 #define JPG_GAMMA 2.2
@@ -65,11 +67,11 @@ const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 // Servo defines
 #define SERVO_MIN_US 700
 #define SERVO_MAX_US 2400
-#define SERVO_MAX_POS 160
+#define SERVO_MAX_POS 165
 #define SERVO_MIN_POS 30
 
 #define SERVO_NOISE_POS 70
-#define SERVO_ART_POS 160
+#define SERVO_ART_POS 120
 #define SERVO_BARS_POS 145
 #define SERVO_GRID_POS 90
 
@@ -99,7 +101,7 @@ enum AudioMode {
     AUDIO_OUTRUN_BARS
 };
 const unsigned long DISPLAY_DURATIONS[DISPLAY_MODES_MAX] = {DISPLAY_ART_DURATION_MS, DISPLAY_AUDIO_DURATION_MS};
-const uint8_t AUDIO_SERVO_POSITIONS[AUDIO_MODES_MAX] = {SERVO_NOISE_POS, SERVO_GRID_POS, SERVO_BARS_POS, SERVO_BARS_POS, SERVO_GRID_POS};
+const uint8_t AUDIO_SERVO_POSITIONS[AUDIO_MODES_MAX] = {SERVO_NOISE_POS, SERVO_GRID_POS, SERVO_BARS_POS, SERVO_BARS_POS, SERVO_NOISE_POS};
 
 // Specific to audio volume control
 #define VOL_FACTOR 10                        // empirically found that RMS of signal needs x10 to match RMS of FFT

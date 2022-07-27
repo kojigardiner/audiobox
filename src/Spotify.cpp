@@ -48,7 +48,7 @@ bool Spotify::get_refresh_token(const char *auth_b64, char *refresh_token) {
             break;
         }
         default: {
-            print("%d: Unrecognized error\n", httpCode);
+            print("%d:%s: Unrecognized error\n", httpCode, __func__);
             ret = false;
             break;
         }
@@ -89,7 +89,7 @@ bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, cha
             break;
         }
         default:
-            print("%d: Unrecognized error\n", httpCode);
+            print("%d:%s: Unrecognized error\n", httpCode, __func__);
             ret = false;
             break;
     }
@@ -207,6 +207,8 @@ bool Spotify::_get_player() {
 
     int httpCode = http.GET();
     String payload = http.getString();
+    // Serial.println(payload);
+
     http.end();
 
     // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
@@ -225,24 +227,24 @@ bool Spotify::_get_player() {
             break;
         }
         case HTTP_CODE_NO_CONTENT:
-            print("%d: Playback not available/active\n", httpCode);
+            print("%d:%s: Playback not available/active\n", httpCode, __func__);
             _token_expired = false;
             ret = false;
             break;
         case HTTP_CODE_BAD_REQUEST:
         case HTTP_CODE_UNAUTHORIZED:
         case HTTP_CODE_FORBIDDEN:
-            print("%d: Bad/expired token or OAuth request\n", httpCode);
+            print("%d:%s: Bad/expired token or OAuth request\n", httpCode, __func__);
             _token_expired = true;
             ret = false;
             break;
         case HTTP_CODE_TOO_MANY_REQUESTS:
-            print("%d: Exceeded rate limits\n", httpCode);
+            print("%d:%s: Exceeded rate limits\n", httpCode, __func__);
             _token_expired = false;
             ret = false;
             break;
         default:
-            print("%d: Unrecognized error\n", httpCode);
+            print("%d:%s: Unrecognized error\n", httpCode, __func__);
             _token_expired = true;
             ret = false;
             break;
@@ -285,7 +287,7 @@ bool Spotify::_get_features() {
             break;
         }
         case HTTP_CODE_NO_CONTENT:
-            print("%d: Playback not available/active\n", httpCode);
+            print("%d:%s: Playback not available/active\n", httpCode, __func__);
             _is_active = false;
             _is_playing = false;
             _token_expired = false;
@@ -294,17 +296,17 @@ bool Spotify::_get_features() {
         case HTTP_CODE_BAD_REQUEST:
         case HTTP_CODE_UNAUTHORIZED:
         case HTTP_CODE_FORBIDDEN:
-            print("%d: Bad/expired token or OAuth request\n", httpCode);
+            print("%d:%s: Bad/expired token or OAuth request\n", httpCode, __func__);
             _token_expired = true;
             ret = false;
             break;
         case HTTP_CODE_TOO_MANY_REQUESTS:
-            print("%d: Exceeded rate limits\n", httpCode);
+            print("%d:%s: Exceeded rate limits\n", httpCode, __func__);
             _token_expired = false;
             ret = false;
             break;
         default:
-            print("%d: Unrecognized error\n", httpCode);
+            print("%d:%s: Unrecognized error\n", httpCode, __func__);
             _token_expired = true;
             ret = false;
             break;
@@ -315,6 +317,12 @@ bool Spotify::_get_features() {
 
 // Parses json response from the Spotify Web API and stores results in member variables
 void Spotify::_parse_json(DynamicJsonDocument *json) {
+    if ((*json)["item"]["id"].as<const char *>() == 0) {
+        print("json track id is null!\n");
+        return;  // in rare cases (e.g. on a playlist, Spotify will
+                 // report is_playing but the track id will be null)
+    }
+
     char parsed_track_id[CLI_MAX_CHARS];
     strncpy(parsed_track_id, (*json)["item"]["id"].as<const char *>(), CLI_MAX_CHARS);
 
@@ -437,7 +445,7 @@ bool Spotify::_get_art() {
     }
     // f.close();
     else {
-        print("%d: Unrecognized error\n", httpCode);
+        print("%d:%s: Unrecognized error\n", httpCode, __func__);
         _album_art.loaded = false;
         ret = false;
     }

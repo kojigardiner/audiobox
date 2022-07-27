@@ -51,7 +51,7 @@ class LEDPanel {
 
     // Set and display audio reactive patterns
     void set_audio_pattern(int mode);
-    void display_audio(int *intensity);
+    void display_audio(int *intensity, double tempo = 0.0);
 
     // Blend current palette toward target palette
     void blend_palettes(int change_rate);

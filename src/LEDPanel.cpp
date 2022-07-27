@@ -108,8 +108,8 @@ void LEDPanel::set_audio_pattern(int mode) {
     }
 }
 
-void LEDPanel::display_audio(int *intensity) {
-    _audio_pattern->set_leds(intensity);
+void LEDPanel::display_audio(int *intensity, double tempo) {
+    _audio_pattern->set_leds(intensity, tempo);
 }
 
 void LEDPanel::set_palette(CRGBPalette16 palette) {

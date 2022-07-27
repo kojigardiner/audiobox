@@ -15,7 +15,7 @@ class LEDAudioPattern {
     LEDAudioPattern(LEDPanel *lp);
     virtual ~LEDAudioPattern();
 
-    virtual void set_leds(int *intensity) = 0;  // abstract method to be implemented by all subclasses
+    virtual void set_leds(int *intensity, double tempo) = 0;  // abstract method to be implemented by all subclasses
 
    protected:
     LEDPanel *_lp;  // pointer to LED panel object whose pixels will be updated
@@ -26,7 +26,7 @@ class LEDNoisePattern : public LEDAudioPattern {
    public:
     LEDNoisePattern(LEDPanel *lp) : LEDAudioPattern(lp){};
 
-    void set_leds(int *intensity) override;
+    void set_leds(int *intensity, double tempo) override;
 
    private:
     // Helper methods
@@ -65,7 +65,7 @@ class LEDNoisePattern : public LEDAudioPattern {
 class LEDBarsPattern : public LEDAudioPattern {
    public:
     LEDBarsPattern(LEDPanel *lp) : LEDAudioPattern(lp){};
-    void set_leds(int *intensity) override;
+    void set_leds(int *intensity, double tempo) override;
 
    private:
     uint8_t _peaks[GRID_W] = {0};
@@ -76,7 +76,7 @@ class LEDBarsPattern : public LEDAudioPattern {
 class LEDOutrunBarsPattern : public LEDAudioPattern {
    public:
     LEDOutrunBarsPattern(LEDPanel *lp) : LEDAudioPattern(lp){};
-    void set_leds(int *intensity) override;
+    void set_leds(int *intensity, double tempo) override;
 
    private:
     uint8_t _peaks[GRID_W] = {0};
@@ -87,21 +87,21 @@ class LEDOutrunBarsPattern : public LEDAudioPattern {
 class LEDCenterBarsPattern : public LEDAudioPattern {
    public:
     LEDCenterBarsPattern(LEDPanel *lp) : LEDAudioPattern(lp){};
-    void set_leds(int *intensity) override;
+    void set_leds(int *intensity, double tempo) override;
 };
 
 // Side-scrolling waterfall pattern, similar to spectrogram display
 class LEDWaterfallPattern : public LEDAudioPattern {
    public:
     LEDWaterfallPattern(LEDPanel *lp) : LEDAudioPattern(lp){};
-    void set_leds(int *intensity) override;
+    void set_leds(int *intensity, double tempo) override;
 };
 
 // Symmetric serpentine grid pattern
 class LEDSymSnakeGridPattern : public LEDAudioPattern {
    public:
     LEDSymSnakeGridPattern(LEDPanel *lp) : LEDAudioPattern(lp){};
-    void set_leds(int *intensity) override;
+    void set_leds(int *intensity, double tempo) override;
 };
 
 #endif  // _LEDAUDIOPATTERN_H

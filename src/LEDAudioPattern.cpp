@@ -63,8 +63,8 @@ void LEDNoisePattern::_fill_noise8() {
     _z += _speed;
 
     // apply slow drift to X and Y, just for visual variation.
-    // x += speed / 8;
-    // y -= speed / 16;
+    _x += _speed / 8;
+    _y -= _speed / 16;
 }
 
 // Sets LEDs based on noise grid and current palette. From FastLED.
@@ -100,13 +100,13 @@ void LEDNoisePattern::_map_noise_to_leds_using_palette() {
 }
 
 // Generates a simplex noise pattern of LEDs. Based on FastLED implementation.
-void LEDNoisePattern::set_leds(int *intensity) {
+void LEDNoisePattern::set_leds(int *intensity, double tempo) {
     _fill_noise8();
     _map_noise_to_leds_using_palette();
 }
 
 // Generates vertical bar pattern, with peaks that decay over time. Based on ESP32 FFT VU code.
-void LEDBarsPattern::set_leds(int *intensity) {
+void LEDBarsPattern::set_leds(int *intensity, double tempo) {
     for (int bar_x = 0; bar_x < GRID_W; bar_x++) {
         int max_y = int(round((float(intensity[bar_x]) / 255) * GRID_H));  // scale the intensity by the grid height
         max_y = constrain(max_y, 0, GRID_H - 1);
@@ -138,7 +138,7 @@ void LEDBarsPattern::set_leds(int *intensity) {
 }
 
 // Generates vertical peaks that decay and change color over time. Based on ESP32 FFT VU code.
-void LEDOutrunBarsPattern::set_leds(int *intensity) {
+void LEDOutrunBarsPattern::set_leds(int *intensity, double tempo) {
     for (int bar_x = 0; bar_x < GRID_W; bar_x++) {
         int max_y = int(round((float(intensity[bar_x]) / 255) * GRID_H));  // scale the intensity by the grid height
         max_y = constrain(max_y, 0, GRID_H - 1);
@@ -167,7 +167,7 @@ void LEDOutrunBarsPattern::set_leds(int *intensity) {
 }
 
 // Generates centered symmetric vertical bar pattern. Based on ESP32 FFT VU code.
-void LEDCenterBarsPattern::set_leds(int *intensity) {
+void LEDCenterBarsPattern::set_leds(int *intensity, double tempo) {
     for (int bar_x = 0; bar_x < GRID_W; bar_x++) {
         int max_y = int(round((float(intensity[bar_x]) / 255) * GRID_H));  // scale the intensity by the grid height
         max_y = constrain(max_y, 0, GRID_H - 1);
@@ -189,10 +189,12 @@ void LEDCenterBarsPattern::set_leds(int *intensity) {
 }
 
 // Generates side-scrolling spectrogram. Based on ESP32 FFT VU code.
-void LEDWaterfallPattern::set_leds(int *intensity) {
+void LEDWaterfallPattern::set_leds(int *intensity, double tempo) {
     for (int bar_y = 0; bar_y < GRID_H; bar_y++) {
         // Draw right line
-        _lp->set_xy(GRID_W - 1, bar_y, CHSV(constrain(map(intensity[bar_y], 0, 255, 160, 0), 0, 160), 255, 255));
+        //_lp->set_xy(GRID_W - 1, bar_y, CHSV(constrain(map(intensity[bar_y], 0, 255, 160, 0), 0, 160), 255, 255));
+        _lp->set_xy(GRID_W - 1, bar_y, ColorFromPalette(_lp->get_palette(), intensity[bar_y], 255, _lp->get_blending()));
+        //_lp->set_xy(GRID_W - 1, bar_y, CHSV(constrain(intensity[bar_y], rgb2hsv_approximate(_lp->get_palette()[0]).h, rgb2hsv_approximate(_lp->get_palette()[15]).h), 255, 255));
 
         // Move screen left starting at 2nd row from left
         if (bar_y == GRID_H - 1) {  // do this on the last cycle
@@ -209,7 +211,7 @@ void LEDWaterfallPattern::set_leds(int *intensity) {
 }
 
 // Generates left-right symmetric serpentine grid pattern that illuminates and fades over time.
-void LEDSymSnakeGridPattern::set_leds(int *intensity) {
+void LEDSymSnakeGridPattern::set_leds(int *intensity, double tempo) {
     // Left half of array
     /*
      * 0: 3 -> 0     (width * i + width/2 - 1)::-1
@@ -228,13 +230,13 @@ void LEDSymSnakeGridPattern::set_leds(int *intensity) {
         if (i % 2 == 0) {
             for (int j = 0; j < GRID_W / 2; j++) {
                 _lp->set(GRID_W * i + GRID_W / 2 - 1 - j, ColorFromPalette(_lp->get_palette(), int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->get_blending()));
-                color_index += 255.0 / (NUM_LEDS / 2);
+                color_index += int(round(255.0 / (NUM_LEDS / 2.0)));
                 curr_index += 1;
             }
         } else {
             for (int j = 0; j < GRID_W / 2; j++) {
                 _lp->set(GRID_W * (i + 1) - 1 - j, ColorFromPalette(_lp->get_palette(), int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->get_blending()));
-                color_index += 255.0 / (NUM_LEDS / 2);
+                color_index += int(round(255.0 / (NUM_LEDS / 2.0)));
                 curr_index += 1;
             }
         }
@@ -260,13 +262,13 @@ void LEDSymSnakeGridPattern::set_leds(int *intensity) {
                 _lp->set(GRID_W * i + GRID_W / 2 + j, ColorFromPalette(_lp->get_palette(), int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->get_blending()));
                 // TODO: Pull color from palette first at intensity[curr_index]; _then_ apply gamma to adjust.
                 // TODO: Use same gammas for RGB that are used on RaspPi
-                color_index += 255.0 / (NUM_LEDS / 2);
+                color_index += int(round(255.0 / (NUM_LEDS / 2.0)));
                 curr_index += 1;
             }
         } else {
             for (int j = 0; j < GRID_W / 2; j++) {
                 _lp->set(GRID_W * i + j, ColorFromPalette(_lp->get_palette(), int(color_index), pgm_read_byte(&GAMMA8[int(intensity[curr_index] * 255.0 / double(BRIGHT_LEVELS))]), _lp->get_blending()));
-                color_index += 255.0 / (NUM_LEDS / 2);
+                color_index += int(round(255.0 / (NUM_LEDS / 2.0)));
                 curr_index += 1;
             }
         }
