@@ -67,13 +67,13 @@ const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 // Servo defines
 #define SERVO_MIN_US 700
 #define SERVO_MAX_US 2400
-#define SERVO_MAX_POS 165
-#define SERVO_MIN_POS 30
+#define SERVO_MAX_POS 170
+#define SERVO_MIN_POS 20
 
-#define SERVO_NOISE_POS 70
-#define SERVO_ART_POS 120
-#define SERVO_BARS_POS 145
-#define SERVO_GRID_POS 90
+#define SERVO_NOISE_POS 30
+#define SERVO_ART_POS 110
+#define SERVO_BARS_POS 165
+#define SERVO_GRID_POS 30
 
 #define SERVO_BUTTON_HOLD_DELAY_MS 50
 #define SERVO_CYCLE_TIME_MS 50
