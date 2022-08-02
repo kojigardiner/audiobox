@@ -129,7 +129,7 @@ void setup() {
     // Task setup
     mutex_leds = xSemaphoreCreateMutex();
 
-    q_spotify = xQueueCreate(1, sizeof(Spotify));
+    q_spotify = xQueueCreate(1, sizeof(Spotify::public_data_t));
     q_button_to_display = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
     q_button_to_audio = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
     q_servo = xQueueCreate(10, sizeof(int));
@@ -207,7 +207,7 @@ void task_display_code(void *parameter) {
     const TickType_t xFrequency = (1000.0 / FPS) / portTICK_RATE_MS;
 
     ButtonFSM::button_fsm_state_t button_state;
-    Spotify sp;
+    Spotify::public_data_t sp_data;
     BaseType_t q_return;
     double percent_complete = 0;
     int counter = 0;
@@ -252,15 +252,15 @@ void task_display_code(void *parameter) {
             modes.display.cycle_mode();
         }
 
-        q_return = xQueueReceive(q_spotify, &sp, 0);  // get the spotify update if there is one
+        q_return = xQueueReceive(q_spotify, &sp_data, 0);  // get the spotify update if there is one
         if (q_return == pdTRUE) {
-            if (sp.is_active()) {
-                percent_complete = sp.get_track_progress() * 100;
+            if (sp_data.is_active) {
+                percent_complete = sp_data.track_progress * 100;
                 // Serial.println("Playing..." + String(percent_complete) + "%");
             } else {
                 modes.display.set_mode(DISPLAY_ART);  // will be blank when there's no art
             }
-            if (sp.get_album_art().changed) {
+            if (sp_data.album_art.changed) {
                 modes.display.set_mode(DISPLAY_ART);  // show art on track change
             }
         }
@@ -270,7 +270,7 @@ void task_display_code(void *parameter) {
         switch (modes.display.get_mode()) {
             case DISPLAY_ART: {
                 // Display art and current elapsed regardless of if we have new data from the queue
-                if (sp.get_album_art().loaded && sp.is_active()) {
+                if (sp_data.album_art.loaded && sp_data.is_active) {
                     xSemaphoreTake(mutex_leds, portMAX_DELAY);
 
                     display_full_art(0, 0);
@@ -429,11 +429,11 @@ void task_spotify_code(void *parameter) {
     for (;;) {
         if ((WiFi.status() == WL_CONNECTED)) {
             sp.update();
-            Spotify::album_art_t album_art = sp.get_album_art();
-            if (album_art.changed) {
-                decode_art(album_art.data, album_art.num_bytes);
+            Spotify::public_data_t sp_data = sp.get_data();
+            if (sp_data.album_art.changed) {
+                decode_art(sp_data.album_art.data, sp_data.album_art.num_bytes);
             }
-            xQueueSend(q_spotify, &sp, 0);  // set timeout to zero so loop will continue until display is updated
+            xQueueSend(q_spotify, &sp_data, 0);  // set timeout to zero so loop will continue until display is updated
         } else {
             print("Error: WiFi not connected! status = %d\n", WiFi.status());
         }
