@@ -12,10 +12,12 @@
 #include "ButtonFSM.h"
 #include "CLI.h"
 #include "Constants.h"
+#include "Event.h"
 #include "LEDPanel.h"
 #include "MeanCut.h"
 #include "Mode.h"
 #include "Spotify.h"
+#include "Task.h"
 #include "Utils.h"
 
 /*** Function Prototypes ***/
@@ -36,6 +38,7 @@ QueueHandle_t q_button_to_audio;
 QueueHandle_t q_servo;
 QueueHandle_t q_mode;
 QueueHandle_t q_audio_done;
+QueueHandle_t q_event;
 
 // Semaphores
 SemaphoreHandle_t mutex_leds;
@@ -135,58 +138,59 @@ void setup() {
     q_servo = xQueueCreate(10, sizeof(int));
     q_mode = xQueueCreate(1, sizeof(Modes_t));
     q_audio_done = xQueueCreate(1, sizeof(uint8_t));
+    q_event = xQueueCreate(10, sizeof(event_t));
 
     disableCore0WDT();  // hack to avoid various kernel panics
 
-    xTaskCreatePinnedToCore(
+    Task t1 = Task(
         task_spotify_code,  // Function to implement the task
         "task_spotify",     // Name of the task
         10000,              // Stack size in words
         NULL,               // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_spotify,      // Task handle
-        0                   // Pinned core - 0 is the same core as WiFi
-    );
+        0,                  // Pinned core - 0 is the same core as WiFi
+        q_event);
 
-    xTaskCreatePinnedToCore(
+    Task t2 = Task(
         task_display_code,  // Function to implement the task
         "task_display",     // Name of the task
         10000,              // Stack size in words
         NULL,               // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_display,      // Task handle
-        1                   // Pinned core, 1 is preferred to avoid glitches (see: https://www.reddit.com/r/FastLED/comments/rfl6rz/esp32_wifi_on_core_1_fastled_on_core_0/)
-    );
+        1,                  // Pinned core, 1 is preferred to avoid glitches (see: https://www.reddit.com/r/FastLED/comments/rfl6rz/esp32_wifi_on_core_1_fastled_on_core_0/)
+        q_event);
 
-    xTaskCreatePinnedToCore(
+    Task t3 = Task(
         task_buttons_code,  // Function to implement the task
         "task_buttons",     // Name of the task
         10000,              // Stack size in words
         NULL,               // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_buttons,      // Task handle
-        1                   // Pinned core
-    );
+        1,                  // Pinned core
+        q_event);
 
-    xTaskCreatePinnedToCore(
+    Task t4 = Task(
         task_audio_code,  // Function to implement the task
         "task_audio",     // Name of the task
         30000,            // Stack size in words
         NULL,             // Task input parameter
         1,                // Priority of the task (don't use 0!)
         &task_audio,      // Task handle
-        1                 // Pinned core
-    );
+        1,                // Pinned core
+        q_event);
 
-    xTaskCreatePinnedToCore(
+    Task t5 = Task(
         task_servo_code,  // Function to implement the task
         "task_servo",     // Name of the task
         2000,             // Stack size in words
         NULL,             // Task input parameter
         1,                // Priority of the task (don't use 0!)
         &task_servo,      // Task handle
-        1                 // Pinned core
-    );
+        1,                // Pinned core
+        q_event);
 }
 
 void loop() {
@@ -260,7 +264,7 @@ void task_display_code(void *parameter) {
             } else {
                 modes.display.set_mode(DISPLAY_ART);  // will be blank when there's no art
             }
-            if (sp_data.album_art.changed) {
+            if (sp_data.art_changed) {
                 modes.display.set_mode(DISPLAY_ART);  // show art on track change
             }
         }
@@ -270,7 +274,7 @@ void task_display_code(void *parameter) {
         switch (modes.display.get_mode()) {
             case DISPLAY_ART: {
                 // Display art and current elapsed regardless of if we have new data from the queue
-                if (sp_data.album_art.loaded && sp_data.is_active) {
+                if (sp_data.art_loaded && sp_data.is_active) {
                     xSemaphoreTake(mutex_leds, portMAX_DELAY);
 
                     display_full_art(0, 0);
@@ -430,8 +434,8 @@ void task_spotify_code(void *parameter) {
         if ((WiFi.status() == WL_CONNECTED)) {
             sp.update();
             Spotify::public_data_t sp_data = sp.get_data();
-            if (sp_data.album_art.changed) {
-                decode_art(sp_data.album_art.data, sp_data.album_art.num_bytes);
+            if (sp_data.art_changed) {
+                decode_art(sp_data.art_data, sp_data.art_num_bytes);
             }
             xQueueSend(q_spotify, &sp_data, 0);  // set timeout to zero so loop will continue until display is updated
         } else {
