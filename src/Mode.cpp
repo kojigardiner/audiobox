@@ -1,35 +1,29 @@
 #include "Mode.h"
 
 // Constructor
-Mode::Mode() {
-    _durations = NULL;
-    _num_modes = 0;
-
-    set_mode(0);
+Mode::Mode(int id, int servo_pos, int duration_ms) {
+    this->_id = id;
+    this->_servo_pos = servo_pos;
+    this->_duration_ms = duration_ms;
+    this->_timer = Timer(duration_ms);
 }
 
-Mode::Mode(int initial_mode, int num_modes, const unsigned long *durations) {
-    _durations = durations;
-    _num_modes = num_modes;
-
-    set_mode(initial_mode);
-}
-
-void Mode::cycle_mode() {
-    set_mode((_mode + 1) % _num_modes);  // cycle through the modes
-}
-
-void Mode::set_mode(int mode) {
-    _mode = mode;
-    if (_durations != NULL) {
-        _timer.set_timeout_ms(_durations[_mode]);
+bool Mode::elapsed() {
+    if (this->_timer.get_timeout_ms() != 0) {
+        return _timer.has_elapsed();
+    } else {
+        return false;
     }
 }
 
-int Mode::get_mode() {
-    return _mode;
+void Mode::reset_timer() {
+    _timer.reset();
 }
 
-bool Mode::mode_elapsed() {
-    return _timer.has_elapsed();
+int Mode::id() {
+    return _id;
+}
+
+int Mode::get_servo_pos() {
+    return _servo_pos;
 }

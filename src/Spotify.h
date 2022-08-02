@@ -30,10 +30,17 @@ class Spotify {
         unsigned long num_bytes;
     };
 
+    struct public_data_t {
+        bool is_active;
+        double track_progress;
+        album_art_t album_art;
+    };
+
     // Static methods for initial account setup
 
     // CLI flow for requesting user authorization to access their account
-    static bool request_user_auth(const char *client_id, const char *auth_b64, char *refresh_token);
+    static bool
+    request_user_auth(const char *client_id, const char *auth_b64, char *refresh_token);
     static bool get_refresh_token(const char *auth_b64, char *refresh_token);
 
     // Methods
@@ -50,8 +57,8 @@ class Spotify {
     // Indicates if Spotify is currently running on the linked account
     bool is_active();
 
-    // Returns a struct with album art details
-    album_art_t get_album_art();
+    // Returns a struct with public data
+    public_data_t get_data();
 
    private:
     // Methods
@@ -99,7 +106,7 @@ class Spotify {
     double _energy;
     bool _track_changed;
 
-    album_art_t _album_art;
+    public_data_t _public_data;
 };
 
 #endif  // _SPOTIFY_H

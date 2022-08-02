@@ -56,10 +56,6 @@ const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 #define FFTS_PER_SEC int(double(I2S_SAMPLE_RATE) / FFT_SAMPLES)  // number of FFTs computed each sec
 #define SPOTIFY_CYCLE_TIME_MS 1000                               // how often to run the spotify update
 
-// Display refresh
-#define DISPLAY_ART_DURATION_MS 10000
-#define DISPLAY_AUDIO_DURATION_MS 600000
-
 // Mean Cut
 #define MEAN_CUT_DEPTH 4
 #define PALETTE_ENTRIES (1 << MEAN_CUT_DEPTH)
@@ -70,38 +66,38 @@ const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 #define SERVO_MAX_POS 170
 #define SERVO_MIN_POS 20
 
-#define SERVO_NOISE_POS 30
-#define SERVO_ART_POS 110
-#define SERVO_BARS_POS 165
-#define SERVO_GRID_POS 30
+#define SERVO_POS_NOISE 30
+#define SERVO_POS_ART 110
+#define SERVO_POS_BARS 165
+#define SERVO_POS_GRID 30
 
 #define SERVO_BUTTON_HOLD_DELAY_MS 50
-#define SERVO_CYCLE_TIME_MS 50
+#define SERVO_CYCLE_TIME_MS 25
 
 // Mode enums/structs
-enum DisplayMode {
-    DISPLAY_ART,
-    DISPLAY_AUDIO,
-    DISPLAY_MODES_MAX
+enum MainMode {
+    MODE_MAIN_ART,
+    MODE_MAIN_AUDIO,
+    MODE_MAIN_MODES_MAX,
 };
-enum ArtMode {
-    ART_WITHOUT_ELAPSED,
-    ART_WITH_ELAPSED,
-    ART_WITH_PALETTE,
-    ART_MODES_MAX
+enum SubMode {
+    MODE_ART_WITHOUT_ELAPSED,
+    MODE_ART_WITH_ELAPSED,
+    MODE_ART_WITH_PALETTE,
+    MODE_AUDIO_NOISE,
+    MODE_AUDIO_SNAKE_GRID,
+    MODE_AUDIO_BARS,
+    MODE_AUDIO_CENTER_BARS,
+    MODE_AUDIO_WATERFALL,
+    MODE_AUDIO_MODES_MAX,
+    MODE_AUDIO_SCROLLING,
+    MODE_AUDIO_OUTRUN_BARS,
+    MODE_SUBMODE_MAX,
 };
-enum AudioMode {
-    AUDIO_NOISE,
-    AUDIO_SNAKE_GRID,
-    AUDIO_BARS,
-    AUDIO_CENTER_BARS,
-    AUDIO_WATERFALL,
-    AUDIO_MODES_MAX,
-    AUDIO_SCROLLING,
-    AUDIO_OUTRUN_BARS
-};
-const unsigned long DISPLAY_DURATIONS[DISPLAY_MODES_MAX] = {DISPLAY_ART_DURATION_MS, DISPLAY_AUDIO_DURATION_MS};
-const uint8_t AUDIO_SERVO_POSITIONS[AUDIO_MODES_MAX] = {SERVO_NOISE_POS, SERVO_GRID_POS, SERVO_BARS_POS, SERVO_BARS_POS, SERVO_NOISE_POS};
+
+// Display refresh
+#define DURATION_MS_ART 10000
+#define DURATION_MS_AUDIO 600000
 
 // Specific to audio volume control
 #define VOL_FACTOR 10                        // empirically found that RMS of signal needs x10 to match RMS of FFT

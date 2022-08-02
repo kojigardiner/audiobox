@@ -8,7 +8,6 @@ Spotify::Spotify(const char *client_id, const char *auth_b64, const char *refres
     strncpy(_auth_b64, auth_b64, CLI_MAX_CHARS);
     strncpy(_refresh_token, refresh_token, CLI_MAX_CHARS);
 
-    _album_art.data = NULL;
     _reset_variables();
 }
 
@@ -128,9 +127,12 @@ bool Spotify::is_active() {
     return _is_active;
 }
 
-// Returns struct containing album art details
-Spotify::album_art_t Spotify::get_album_art() {
-    return _album_art;
+// Returns struct containing public data
+Spotify::public_data_t Spotify::get_data() {
+    _public_data.is_active = _is_active;
+    _public_data.track_progress = get_track_progress();
+
+    return _public_data;
 }
 
 // Prints variables related to current playing track
@@ -138,8 +140,8 @@ void Spotify::print_info() {
     print("\tTitle: %s\n", _track_title);
     print("\tArtist: %s\n", _artists);
     print("\tAlbum: %s\n", _album);
-    print("\tAlbum art: %s\n", _album_art.url);
-    print("\tAlbum art width: %d\n", _album_art.width);
+    print("\tAlbum art: %s\n", _public_data.album_art.url);
+    print("\tAlbum art width: %d\n", _public_data.album_art.width);
     print("\tDuration (ms): %d\n", _duration_ms);
     print("\tProgress (ms): %d\n", _progress_ms);
     print("\tPlaying: ");
@@ -353,24 +355,24 @@ void Spotify::_parse_json(DynamicJsonDocument *json) {
         // replace https with http, needed to eliminate SSL handshake errors
         _replace_https_with_http(parsed_art_url);
 
-        if (strncmp(_album_art.url, parsed_art_url, CLI_MAX_CHARS) != 0) {  // if the art url has changed
-            strncpy(_album_art.url, parsed_art_url, CLI_MAX_CHARS);
-            _album_art.changed = true;
+        if (strncmp(_public_data.album_art.url, parsed_art_url, CLI_MAX_CHARS) != 0) {  // if the art url has changed
+            strncpy(_public_data.album_art.url, parsed_art_url, CLI_MAX_CHARS);
+            _public_data.album_art.changed = true;
 
-            _album_art.width = (*json)["item"]["album"]["images"][art_url_count - 1]["width"].as<int>();
-            _album_art.loaded = false;
+            _public_data.album_art.width = (*json)["item"]["album"]["images"][art_url_count - 1]["width"].as<int>();
+            _public_data.album_art.loaded = false;
 
-            if (_album_art.url == NULL) {
+            if (_public_data.album_art.url == NULL) {
                 strncpy(_track_id, "", CLI_MAX_CHARS);  // force next loop to check json again
             } else {
                 _get_art();
             }
         } else {
-            _album_art.changed = false;
+            _public_data.album_art.changed = false;
         }
     } else {  // if it's the same track, just show how far we've advanced
         _track_changed = false;
-        _album_art.changed = false;
+        _public_data.album_art.changed = false;
         _progress_ms = (*json)["progress_ms"].as<int>();
         _duration_ms = (*json)["item"]["duration_ms"].as<int>();
     }
@@ -380,10 +382,10 @@ void Spotify::_parse_json(DynamicJsonDocument *json) {
 bool Spotify::_get_art() {
     bool ret;
     int start_ms = millis();
-    print("Downloading %s\n", _album_art.url);
+    print("Downloading %s\n", _public_data.album_art.url);
 
     HTTPClient http;
-    http.begin(_album_art.url);
+    http.begin(_public_data.album_art.url);
 
     int httpCode = http.GET();
 
@@ -391,19 +393,19 @@ bool Spotify::_get_art() {
         // Get length of document (is -1 when Server sends no Content-Length header)
         int total = http.getSize();
 
-        _album_art.num_bytes = total;
+        _public_data.album_art.num_bytes = total;
 
         // Allocate memory in heap for the downloaded data
-        if (_album_art.data != NULL) {
+        if (_public_data.album_art.data != NULL) {
             print("Free heap prior to free: %d\n", ESP.getFreeHeap());
-            free(_album_art.data);  // if not NULL, we have previously allocated memory and should free it
+            free(_public_data.album_art.data);  // if not NULL, we have previously allocated memory and should free it
         }
         print("Free heap prior to malloc: %d\n", ESP.getFreeHeap());
-        _album_art.data = (uint8_t *)malloc(_album_art.num_bytes * sizeof(*(_album_art.data)));  // dereference the art_data pointer to get the size of each element (uint8_t)
+        _public_data.album_art.data = (uint8_t *)malloc(_public_data.album_art.num_bytes * sizeof(*(_public_data.album_art.data)));  // dereference the art_data pointer to get the size of each element (uint8_t)
 
-        if (_album_art.data == NULL) {
+        if (_public_data.album_art.data == NULL) {
             print("Not enough heap for malloc\n");
-            _album_art.loaded = false;
+            _public_data.album_art.loaded = false;
             ret = false;
         } else {
             int len = total;
@@ -427,7 +429,7 @@ bool Spotify::_get_art() {
                     // f.write(buff, c);
 
                     // Write it to memory, (curr_art_size - len) is the number of bytes already written
-                    memcpy(&(_album_art.data)[_album_art.num_bytes - len], buff, c);
+                    memcpy(&(_public_data.album_art.data)[_public_data.album_art.num_bytes - len], buff, c);
 
                     // Calculate remaining bytes
                     if (len > 0) {
@@ -438,7 +440,7 @@ bool Spotify::_get_art() {
             }
             // Serial.println();
             // Serial.print("[HTTP] connection closed or file end.\n");
-            _album_art.loaded = true;
+            _public_data.album_art.loaded = true;
             print("%dms to download art\n", millis() - start_ms);
             ret = true;
         }
@@ -446,7 +448,7 @@ bool Spotify::_get_art() {
     // f.close();
     else {
         print("%d:%s: Unrecognized error\n", httpCode, __func__);
-        _album_art.loaded = false;
+        _public_data.album_art.loaded = false;
         ret = false;
     }
     http.end();
@@ -470,15 +472,17 @@ void Spotify::_reset_variables() {
     _energy = 0.0;
     _track_changed = false;
 
-    strncpy(_album_art.url, "", CLI_MAX_CHARS);
-    _album_art.width = 0;
-    if (_album_art.data != NULL) {
-        free(_album_art.data);
+    strncpy(_public_data.album_art.url, "", CLI_MAX_CHARS);
+    _public_data.album_art.width = 0;
+    if (_public_data.album_art.data != NULL) {
+        free(_public_data.album_art.data);
     }
-    _album_art.data = NULL;
-    _album_art.num_bytes = 0;
-    _album_art.loaded = false;
-    _album_art.changed = false;
+    _public_data.album_art.data = NULL;
+    _public_data.album_art.num_bytes = 0;
+    _public_data.album_art.loaded = false;
+    _public_data.album_art.changed = false;
+    _public_data.is_active = false;
+    _public_data.track_progress = 0.0;
 }
 
 void Spotify::_replace_https_with_http(char *url) {

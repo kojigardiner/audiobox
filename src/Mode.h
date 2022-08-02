@@ -8,19 +8,19 @@
 
 class Mode {
    public:
-    Mode();
-    Mode(int initial_mode, int num_modes, const unsigned long *durations = NULL);
+    // Constructors
+    Mode(int id, int servo_pos, int duration_ms = 0);
 
-    void cycle_mode();
-    void set_mode(int mode);
-    int get_mode();
-    bool mode_elapsed();
+    int get_servo_pos();  // get servo position associate with the mode
+    bool elapsed();       // check if a mode's timer has elapsed
+    int id();             // return the mode id
+    void reset_timer();
 
    private:
-    int _num_modes;
-    int _mode;
-    const unsigned long *_durations;
-    Timer _timer = Timer();
+    int _id;
+    unsigned long _duration_ms;
+    Timer _timer;
+    int _servo_pos;
 };
 
 #endif  // _MODE_H
