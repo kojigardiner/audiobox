@@ -33,7 +33,12 @@ class Spotify {
     struct public_data_t {
         bool is_active;
         double track_progress;
-        album_art_t album_art;
+
+        bool art_loaded;
+        bool art_changed;
+        uint16_t art_width;
+        uint8_t *art_data;
+        unsigned long art_num_bytes;
     };
 
     // Static methods for initial account setup
@@ -105,6 +110,7 @@ class Spotify {
     double _energy;
     bool _track_changed;
 
+    album_art_t _album_art;
     public_data_t _public_data;
 };
 

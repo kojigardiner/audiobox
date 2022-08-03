@@ -12,9 +12,11 @@
 #include "ButtonFSM.h"
 #include "CLI.h"
 #include "Constants.h"
+#include "EventHandler.h"
 #include "LEDPanel.h"
 #include "MeanCut.h"
 #include "Mode.h"
+#include "ModeSequence.h"
 #include "Spotify.h"
 #include "Utils.h"
 
@@ -26,41 +28,42 @@ void display_full_art(uint8_t offset_row, uint8_t offset_col);
 void decode_art(uint8_t *art_data, unsigned long art_num_bytes);
 
 void run_audio(AudioProcessor *ap, int audio_mode);
+void test_modes();
 
 /*** Globals ***/
 
-// Queues to move data between tasks
-QueueHandle_t q_spotify;
-QueueHandle_t q_button_to_display;
-QueueHandle_t q_button_to_audio;
-QueueHandle_t q_servo;
-QueueHandle_t q_mode;
-QueueHandle_t q_audio_done;
+// EventHandler
+EventHandler eh;
 
 // Semaphores
 SemaphoreHandle_t mutex_leds;
 
 // Task & Queue Handles
+TaskHandle_t task_eventhandler;
+QueueHandle_t q_events;
+
 TaskHandle_t task_buttons;
+QueueHandle_t q_buttons;
+
 TaskHandle_t task_spotify;
+QueueHandle_t q_spotify;
+
 TaskHandle_t task_audio;
+QueueHandle_t q_audio;
+
 TaskHandle_t task_display;
+QueueHandle_t q_display;
+
 TaskHandle_t task_servo;
-TaskHandle_t task_setup;
+QueueHandle_t q_servo;
 
 // Task functions
+void task_eventhandler_code(void *parameter);
+void task_buttons_code(void *parameter);
 void task_spotify_code(void *parameter);
 void task_audio_code(void *parameter);
-void task_buttons_code(void *parameter);
 void task_display_code(void *parameter);
 void task_servo_code(void *parameter);
-void task_setup_code(void *parameter);
-
-typedef struct Modes {
-    Mode display;
-    Mode art;
-    Mode audio;
-} Modes_t;
 
 typedef struct AlbumArt {
     uint16_t full_art_rgb565[64][64] = {{0}};     // full resolution RGB565 artwork
@@ -105,6 +108,8 @@ void setup() {
     // Wifi setup
     connect_wifi();
 
+    // test_modes();
+
     // JPG decoder setup
     print("Setting up JPG decoder\n");
     TJpgDec.setJpgScale(1);              // Assuming 64x64 image, will rescale to 16x16
@@ -129,20 +134,40 @@ void setup() {
     // Task setup
     mutex_leds = xSemaphoreCreateMutex();
 
-    q_spotify = xQueueCreate(1, sizeof(Spotify::public_data_t));
-    q_button_to_display = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
-    q_button_to_audio = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
-    q_servo = xQueueCreate(10, sizeof(int));
-    q_mode = xQueueCreate(1, sizeof(Modes_t));
-    q_audio_done = xQueueCreate(1, sizeof(uint8_t));
+    // q_spotify = xQueueCreate(1, sizeof(Spotify::public_data_t));
+    // q_button_to_display = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
+    // q_button_to_audio = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
+    // q_servo = xQueueCreate(10, sizeof(int));
+    // q_mode = xQueueCreate(1, sizeof(Modes_t));
+    // q_audio_done = xQueueCreate(1, sizeof(uint8_t));
+    // q_event = xQueueCreate(10, sizeof(event_t));
 
     disableCore0WDT();  // hack to avoid various kernel panics
+
+    // setup event handler
+    q_events = xQueueCreate(MAX_EVENTHANDLER_EVENTS, sizeof(event_t));
+    eh = EventHandler(q_events);
+
+    q_spotify = xQueueCreate(10, sizeof(event_t));
+    eh.register_task(&task_spotify, q_spotify, EVENT_START);
+
+    q_display = xQueueCreate(10, sizeof(event_t));
+    eh.register_task(&task_display, q_display, EVENT_START | EVENT_MODE_CHANGED | EVENT_SPOTIFY_UPDATED | EVENT_AUDIO_FRAME_DONE);
+
+    q_buttons = xQueueCreate(10, sizeof(event_t));
+    eh.register_task(&task_buttons, q_buttons, EVENT_START | EVENT_SPOTIFY_UPDATED);
+
+    q_audio = xQueueCreate(10, sizeof(event_t));
+    eh.register_task(&task_audio, q_audio, EVENT_START | EVENT_MODE_CHANGED);
+
+    q_servo = xQueueCreate(10, sizeof(event_t));
+    eh.register_task(&task_servo, q_servo, EVENT_START | EVENT_SERVO_POS_CHANGED | EVENT_MODE_CHANGED);
 
     xTaskCreatePinnedToCore(
         task_spotify_code,  // Function to implement the task
         "task_spotify",     // Name of the task
         10000,              // Stack size in words
-        NULL,               // Task input parameter
+        q_spotify,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_spotify,      // Task handle
         0                   // Pinned core - 0 is the same core as WiFi
@@ -152,7 +177,7 @@ void setup() {
         task_display_code,  // Function to implement the task
         "task_display",     // Name of the task
         10000,              // Stack size in words
-        NULL,               // Task input parameter
+        q_display,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_display,      // Task handle
         1                   // Pinned core, 1 is preferred to avoid glitches (see: https://www.reddit.com/r/FastLED/comments/rfl6rz/esp32_wifi_on_core_1_fastled_on_core_0/)
@@ -162,7 +187,7 @@ void setup() {
         task_buttons_code,  // Function to implement the task
         "task_buttons",     // Name of the task
         10000,              // Stack size in words
-        NULL,               // Task input parameter
+        q_buttons,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_buttons,      // Task handle
         1                   // Pinned core
@@ -172,7 +197,7 @@ void setup() {
         task_audio_code,  // Function to implement the task
         "task_audio",     // Name of the task
         30000,            // Stack size in words
-        NULL,             // Task input parameter
+        q_audio,          // Task input parameter
         1,                // Priority of the task (don't use 0!)
         &task_audio,      // Task handle
         1                 // Pinned core
@@ -182,15 +207,101 @@ void setup() {
         task_servo_code,  // Function to implement the task
         "task_servo",     // Name of the task
         2000,             // Stack size in words
-        NULL,             // Task input parameter
+        q_servo,          // Task input parameter
         1,                // Priority of the task (don't use 0!)
         &task_servo,      // Task handle
         1                 // Pinned core
     );
+
+    // Setup eventhandler task last
+    xTaskCreatePinnedToCore(
+        task_eventhandler_code,  // Function to implement the task
+        "task_eventhandler",     // Name of the task
+        2000,                    // Stack size in words
+        NULL,                    // Task input parameter
+        1,                       // Priority of the task (don't use 0!)
+        &task_eventhandler,      // Task handle
+        1                        // Pinned core
+    );
+}
+
+void task_eventhandler_code(void *parameter) {
+    print("task_eventhandler_code running on core ");
+    print("%d\n", xPortGetCoreID());
+
+    event_t e = {.event_type = EVENT_START};
+    eh.emit(e);  // seed all other tasks to start
+    for (;;) {
+        xQueueReceive(q_events, &e, portMAX_DELAY);
+        // print("Received event, %d\n", e.event_type);
+        eh.process(e);
+    }
 }
 
 void loop() {
     vTaskDelete(NULL);  // delete setup and loop tasks
+}
+
+void test_modes() {
+    Mode MAIN_MODES_LIST[] = {
+        Mode(MODE_MAIN_ART, SERVO_POS_ART, DURATION_MS_ART),
+        Mode(MODE_MAIN_AUDIO, SERVO_POS_NOISE, DURATION_MS_AUDIO)};
+
+    Mode ART_SUB_MODES_LIST[] = {
+        Mode(MODE_ART_WITHOUT_ELAPSED, SERVO_POS_ART),
+        Mode(MODE_ART_WITH_ELAPSED, SERVO_POS_ART),
+        Mode(MODE_ART_WITH_PALETTE, SERVO_POS_ART)};
+
+    Mode AUDIO_SUB_MODES_LIST[] = {
+        Mode(MODE_AUDIO_NOISE, SERVO_POS_NOISE),
+        Mode(MODE_AUDIO_SNAKE_GRID, SERVO_POS_GRID),
+        Mode(MODE_AUDIO_BARS, SERVO_POS_BARS),
+        Mode(MODE_AUDIO_CENTER_BARS, SERVO_POS_BARS),
+        Mode(MODE_AUDIO_WATERFALL, SERVO_POS_NOISE)};
+
+    ModeSequence art_sub_modes = ModeSequence(ART_SUB_MODES_LIST, ARRAY_SIZE(ART_SUB_MODES_LIST));
+    ModeSequence audio_sub_modes = ModeSequence(AUDIO_SUB_MODES_LIST, ARRAY_SIZE(AUDIO_SUB_MODES_LIST));
+    ModeSequence sub_modes[] = {art_sub_modes, audio_sub_modes};
+
+    ModeSequence main_modes = ModeSequence(MAIN_MODES_LIST, ARRAY_SIZE(MAIN_MODES_LIST), sub_modes);
+    main_modes.description();
+
+    print("\n\n");
+    main_modes.next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
+    main_modes.get_curr_mode();
+
+    print("\n\n");
+    main_modes.submode_next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
+
+    print("\n\n");
+    main_modes.submode_next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
+
+    print("\n\n");
+    main_modes.submode_next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
+
+    print("\n\n");
+    main_modes.submode_next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
+
+    print("\n\n");
+    main_modes.submode_next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
 }
 
 void show_leds() {
@@ -212,70 +323,60 @@ void task_display_code(void *parameter) {
     double percent_complete = 0;
     int counter = 0;
 
-    Modes_t modes;
-
-    // initial modes
-    modes.display = Mode(DISPLAY_ART, DISPLAY_MODES_MAX, DISPLAY_DURATIONS);
-    modes.art = Mode(ART_WITHOUT_ELAPSED, ART_MODES_MAX);
-    modes.audio = Mode(AUDIO_NOISE, AUDIO_MODES_MAX);
+    curr_mode_t curr_mode;
 
     // Initialise the xLastWakeTime variable with the current time.
     xLastWakeTime = xTaskGetTickCount();
 
+    QueueHandle_t q = (QueueHandle_t)parameter;  // queue for events
+    event_t received_event = {};                 // event to be received
+    event_t e = {};
+
+    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
+    if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
+        print("Starting task\n");
+    }
+
+    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // at the start, wait until we get a mode indication
+    if (q_return == pdTRUE && received_event.event_type == EVENT_MODE_CHANGED) {
+        curr_mode = received_event.mode;
+    } else {
+        print("WARNING: Did not get a valid initial mode!\n");
+    }
+
     for (;;) {
-        // Check for button push and mode change
-        q_return = xQueueReceive(q_button_to_display, &button_state, 0);  // get a new button state if one is available
+        // Check for received events
+        q_return = xQueueReceive(q, &received_event, 0);
         if (q_return == pdTRUE) {
-            switch (button_state) {
-                case ButtonFSM::MOMENTARY_TRIGGERED:  // change the sub-mode
-                    switch (modes.display.get_mode()) {
-                        case DISPLAY_ART:
-                            print("Changing art display type\n");
-                            modes.art.cycle_mode();
-                            break;
-                        case DISPLAY_AUDIO:
-                            print("Changing audio display type\n");
-                            modes.audio.cycle_mode();
-                            break;
+            switch (received_event.event_type) {
+                case EVENT_MODE_CHANGED:
+                    curr_mode = received_event.mode;
+                    break;
+                case EVENT_SPOTIFY_UPDATED:
+                    sp_data = received_event.sp_data;
+                    percent_complete = sp_data.track_progress * 100;
+                    break;
+                case EVENT_AUDIO_FRAME_DONE:
+                    if (curr_mode.main.id() == MODE_MAIN_AUDIO) {
+                        // int new_pos = SERVO_NOISE_POS;  // this moves to the audio function
+                        // xQueueSend(q_servo, &new_pos, 0);
+                        show_leds();
                     }
                     break;
-
-                case ButtonFSM::HOLD_TRIGGERED:  // change the main mode
-                    print("Changing display mode\n");
-                    modes.display.cycle_mode();
-                    break;
+                default:
+                    print("WARNING: task_display_code received unexpected event type %d!\n", received_event.event_type);
             }
         }
 
-        if (modes.display.mode_elapsed()) {
-            print("Timer elapsed, cycling display mode\n");
-            modes.display.cycle_mode();
-        }
-
-        q_return = xQueueReceive(q_spotify, &sp_data, 0);  // get the spotify update if there is one
-        if (q_return == pdTRUE) {
-            if (sp_data.is_active) {
-                percent_complete = sp_data.track_progress * 100;
-                // Serial.println("Playing..." + String(percent_complete) + "%");
-            } else {
-                modes.display.set_mode(DISPLAY_ART);  // will be blank when there's no art
-            }
-            if (sp_data.album_art.changed) {
-                modes.display.set_mode(DISPLAY_ART);  // show art on track change
-            }
-        }
-        xQueueSend(q_mode, &modes, 0);  // send the mode so the audio task knows what state we're in
-
-        // Display based on the mode
-        switch (modes.display.get_mode()) {
-            case DISPLAY_ART: {
+        switch (curr_mode.main.id()) {
+            case MODE_MAIN_ART: {
                 // Display art and current elapsed regardless of if we have new data from the queue
-                if (sp_data.album_art.loaded && sp_data.is_active) {
+                if (sp_data.art_loaded && sp_data.is_active) {
                     xSemaphoreTake(mutex_leds, portMAX_DELAY);
 
                     display_full_art(0, 0);
-                    switch (modes.art.get_mode()) {
-                        case ART_WITH_ELAPSED: {  // Update the LED indicator at the bottom of the array
+                    switch (curr_mode.sub.id()) {
+                        case MODE_ART_WITH_ELAPSED: {  // Update the LED indicator at the bottom of the array
                             int grid_pos = int(round(percent_complete / 100 * GRID_W));
 
                             for (int i = 0; i < GRID_W; i++) {
@@ -285,7 +386,7 @@ void task_display_code(void *parameter) {
                             }
                             break;
                         }
-                        case ART_WITH_PALETTE:  // Update the bottom of the array with the palette
+                        case MODE_ART_WITH_PALETTE:  // Update the bottom of the array with the palette
                             for (int i = 0; i < PALETTE_ENTRIES; i++) {
                                 lp.set(i, album_art.palette_crgb[i]);
                             }
@@ -293,24 +394,14 @@ void task_display_code(void *parameter) {
                     }
                     xSemaphoreGive(mutex_leds);
                     show_leds();
+                } else {  // no art, go blank
+                    // // move before we display
+                    // event_t e = {.event_type = EVENT_SERVO_POS_CHANGED, {.servo_pos = SERVO_POS_NOISE}};
+                    // eh.emit(e);
 
-                    int new_pos = SERVO_ART_POS;
-                    xQueueSend(q_servo, &new_pos, 0);  // move after we have displayed
-                } else {                               // no art, go blank
-                    int new_pos = SERVO_NOISE_POS;
-                    xQueueSend(q_servo, &new_pos, 0);  // move before we display
                     FastLED.clear();
                     show_leds();
                 }
-                break;
-            }
-            case DISPLAY_AUDIO: {
-                // int new_pos = SERVO_NOISE_POS;  // this moves to the audio function
-                // xQueueSend(q_servo, &new_pos, 0);
-
-                uint8_t done;
-                xQueueReceive(q_audio_done, &done, portMAX_DELAY);
-                show_leds();
                 break;
             }
         }
@@ -331,30 +422,51 @@ void task_audio_code(void *parameter) {
     const TickType_t xFrequency = ((FFT_SAMPLES / 2.0) / I2S_SAMPLE_RATE * 1000) / portTICK_RATE_MS;
 
     AudioProcessor ap = AudioProcessor(false, false, true, true);
-    Modes_t modes;
+
     CRGB last_leds[NUM_LEDS] = {0};  // capture the last led state before transitioning to a new mode;
     BaseType_t q_return;
     int blend_counter = 0;
 
     // calculate the number of cycles to take to fully blend based on servo move time
     // TODO: is this correct? since this task is not operating at FPS speed
-    int max_blend_count = int((SERVO_CYCLE_TIME_MS / 1000.0 * (SERVO_ART_POS - SERVO_NOISE_POS)) * FPS * 1.25);
+    int max_blend_count = int((SERVO_CYCLE_TIME_MS / 1000.0 * (SERVO_POS_ART - SERVO_POS_NOISE)) * FPS * 1.25);
 
-    xQueueReceive(q_mode, &modes, portMAX_DELAY);  // at the start, wait until we get a mode indication
+    QueueHandle_t q = (QueueHandle_t)parameter;  // q for receiving events
+    event_t received_event = {};
+    event_t e = {};
+    curr_mode_t curr_mode;
+
+    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
+    if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
+        print("Starting task\n");
+    }
+
+    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // at the start, wait until we get a mode indication
+    if (q_return == pdTRUE && received_event.event_type == EVENT_MODE_CHANGED) {
+        curr_mode = received_event.mode;
+    } else {
+        print("WARNING: Did not get a valid initial mode!\n");
+    }
 
     // Initialise the xLastWakeTime variable with the current time.
     xLastWakeTime = xTaskGetTickCount();
 
     int last_audio_mode = -1;
     for (;;) {
-        if (ap.is_active()) {                             // don't run the loop if AP failed to init
-            q_return = xQueueReceive(q_mode, &modes, 0);  // check if there is a new mode, if not, we just use the last mode
+        if (ap.is_active()) {                                 // don't run the loop if AP failed to init
+            q_return = xQueueReceive(q, &received_event, 0);  // check if there is a new mode, if not, we just use the last mode
 
-            if (modes.display.get_mode() == DISPLAY_AUDIO) {
-                int audio_mode = modes.audio.get_mode();
-
-                int new_pos = AUDIO_SERVO_POSITIONS[audio_mode];
-                xQueueSend(q_servo, &new_pos, 0);  // move the servo
+            if (q_return == pdTRUE) {
+                switch (received_event.event_type) {
+                    case EVENT_MODE_CHANGED:
+                        curr_mode = received_event.mode;
+                        break;
+                    default:
+                        print("WARNING: task_audio_code received unexpected event type %d!\n", received_event.event_type);
+                }
+            }
+            if (curr_mode.main.id() == MODE_MAIN_AUDIO) {
+                int audio_mode = curr_mode.sub.id();
 
                 run_audio(&ap, audio_mode);
 
@@ -380,8 +492,9 @@ void task_audio_code(void *parameter) {
                 }
 
                 xSemaphoreGive(mutex_leds);
-                uint8_t done;
-                xQueueSend(q_audio_done, &done, 0);
+
+                e = {.event_type = EVENT_AUDIO_FRAME_DONE};
+                eh.emit(e);
             } else {
                 blend_counter = 0;  // reset the blend counter
             }
@@ -399,7 +512,7 @@ void run_audio(AudioProcessor *ap, int audio_mode) {
     ap->update_volume();
     ap->run_fft();
 
-    if (audio_mode == AUDIO_SNAKE_GRID) {
+    if (audio_mode == MODE_AUDIO_SNAKE_GRID) {
         ap->calc_intensity(NUM_LEDS / 2);  // for a symmetric pattern, we only calculate intensities for half the LEDs
     } else {
         ap->calc_intensity_simple();
@@ -417,6 +530,15 @@ void task_spotify_code(void *parameter) {
     char auth_b64[CLI_MAX_CHARS];
     char refresh_token[CLI_MAX_CHARS];
 
+    QueueHandle_t q = (QueueHandle_t)parameter;
+    event_t received_event = {};
+    BaseType_t q_return;
+
+    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
+    if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
+        print("Starting task\n");
+    }
+
     if (!prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY, client_id, CLI_MAX_CHARS) ||
         !prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64, CLI_MAX_CHARS) ||
         !prefs.getString(PREFS_SPOTIFY_REFRESH_TOKEN_KEY, refresh_token, CLI_MAX_CHARS)) {
@@ -430,10 +552,11 @@ void task_spotify_code(void *parameter) {
         if ((WiFi.status() == WL_CONNECTED)) {
             sp.update();
             Spotify::public_data_t sp_data = sp.get_data();
-            if (sp_data.album_art.changed) {
-                decode_art(sp_data.album_art.data, sp_data.album_art.num_bytes);
+            if (sp_data.art_changed) {
+                decode_art(sp_data.art_data, sp_data.art_num_bytes);
             }
-            xQueueSend(q_spotify, &sp_data, 0);  // set timeout to zero so loop will continue until display is updated
+            event_t e = {.event_type = EVENT_SPOTIFY_UPDATED, {.sp_data = sp_data}};
+            eh.emit(e);  // set timeout to zero so loop will continue until display is updated
         } else {
             print("Error: WiFi not connected! status = %d\n", WiFi.status());
         }
@@ -446,37 +569,120 @@ void task_buttons_code(void *parameter) {
     print("task_buttons_code running on core ");
     print("%d\n", xPortGetCoreID());
 
-    ButtonFSM button_fsm = ButtonFSM(PIN_BUTTON_MODE);
-    ButtonFSM::button_fsm_state_t button_state;
+    BaseType_t q_return;
+    QueueHandle_t q = (QueueHandle_t)parameter;
+    event_t received_event = {};
+
+    ButtonFSM button1_fsm = ButtonFSM(PIN_BUTTON_MODE);
+    ButtonFSM button2_fsm = ButtonFSM(PIN_BUTTON2_MODE);
+
+    ButtonFSM::button_fsm_state_t button1_state;
+    ButtonFSM::button_fsm_state_t button2_state;
+
+    Mode MAIN_MODES_LIST[] = {
+        Mode(MODE_MAIN_ART, SERVO_POS_ART, DURATION_MS_ART),
+        Mode(MODE_MAIN_AUDIO, SERVO_POS_NOISE, DURATION_MS_AUDIO)};
+
+    Mode ART_SUB_MODES_LIST[] = {
+        Mode(MODE_ART_WITHOUT_ELAPSED, SERVO_POS_ART),
+        Mode(MODE_ART_WITH_ELAPSED, SERVO_POS_ART),
+        Mode(MODE_ART_WITH_PALETTE, SERVO_POS_ART)};
+
+    Mode AUDIO_SUB_MODES_LIST[] = {
+        Mode(MODE_AUDIO_NOISE, SERVO_POS_NOISE),
+        Mode(MODE_AUDIO_SNAKE_GRID, SERVO_POS_GRID),
+        Mode(MODE_AUDIO_BARS, SERVO_POS_BARS),
+        Mode(MODE_AUDIO_CENTER_BARS, SERVO_POS_BARS),
+        Mode(MODE_AUDIO_WATERFALL, SERVO_POS_NOISE)};
+
+    ModeSequence art_sub_modes = ModeSequence(ART_SUB_MODES_LIST, ARRAY_SIZE(ART_SUB_MODES_LIST));
+    ModeSequence audio_sub_modes = ModeSequence(AUDIO_SUB_MODES_LIST, ARRAY_SIZE(AUDIO_SUB_MODES_LIST));
+    ModeSequence sub_modes[] = {art_sub_modes, audio_sub_modes};
+
+    ModeSequence main_modes = ModeSequence(MAIN_MODES_LIST, ARRAY_SIZE(MAIN_MODES_LIST), sub_modes);
+
+    Spotify::public_data_t sp_data;
+
+    bool mode_changed;
+
+    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
+    if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
+        print("Starting task\n");
+    }
+
+    // seed the event handler with our default mode
+    curr_mode_t curr_mode = main_modes.get_curr_mode();
+    event_t e = {.event_type = EVENT_MODE_CHANGED, {.mode = curr_mode}};
+    eh.emit(e);
 
     for (;;) {
+        mode_changed = false;
+
         // Check for power off
         if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
-            int new_pos = SERVO_NOISE_POS;
-            xQueueSend(q_servo, &new_pos, 0);
+            e = {.event_type = EVENT_SERVO_POS_CHANGED, {.servo_pos = SERVO_POS_NOISE}};
+            eh.emit(e);
 
             xSemaphoreTake(mutex_leds, portMAX_DELAY);
 
-            vTaskDelay(((SERVO_ART_POS - SERVO_NOISE_POS) * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
+            vTaskDelay(((SERVO_POS_ART - SERVO_POS_NOISE) * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
             print("Switch is high, going to sleep\n");
             FastLED.clear(true);
             esp_deep_sleep_start();
         }
-        button_fsm.advance();
-        button_state = button_fsm.get_state();
+        button1_fsm.advance();
+        button1_state = button1_fsm.get_state();
 
-        if (button_state == ButtonFSM::HOLD_TRIGGERED) {  // change modes
-            xQueueSend(q_button_to_display, &button_state, 0);
-            xQueueSend(q_button_to_audio, &button_state, 0);
+        button2_fsm.advance();
+        button2_state = button2_fsm.get_state();
 
-            print("Hold button\n");
+        if (button1_state == ButtonFSM::HOLD_TRIGGERED) {  // change modes
+            print("Hold button1\n");
         }
-        if (button_state == ButtonFSM::MOMENTARY_TRIGGERED) {  // move the servos
-            xQueueSend(q_button_to_display, &button_state, 0);
-            xQueueSend(q_button_to_audio, &button_state, 0);
+        if (button1_state == ButtonFSM::MOMENTARY_TRIGGERED) {  // move the servos
+            main_modes.submode_next();
+            mode_changed = true;
 
-            print("Momentary button\n");
+            print("Momentary button1\n");
         }
+        if (button2_state == ButtonFSM::HOLD_TRIGGERED) {  // change modes
+            print("Hold button2\n");
+        }
+        if (button2_state == ButtonFSM::MOMENTARY_TRIGGERED) {  // move the servos
+            main_modes.next();
+            mode_changed = true;
+
+            print("Momentary button2\n");
+        }
+
+        // check if mode timers have elapsed
+        if (main_modes.mode().elapsed()) {
+            print("Main mode elapsed, cycling modes\n");
+            main_modes.next();
+            mode_changed = true;
+        }
+        if (main_modes.submode().elapsed()) {
+            print("Submode elapsed, cycling submodes\n");
+            main_modes.submode_next();
+            mode_changed = true;
+        }
+
+        q_return = xQueueReceive(q, &received_event, 0);  // get the spotify update if there is one
+        if (q_return == pdTRUE && received_event.event_type == EVENT_SPOTIFY_UPDATED) {
+            sp_data = received_event.sp_data;
+            if (sp_data.art_changed) {
+                main_modes.set(MODE_MAIN_ART);  // show art on track change
+                mode_changed = true;
+            }
+        }
+
+        // let other tasks know the mode has changed
+        if (mode_changed) {
+            curr_mode = main_modes.get_curr_mode();
+            event_t e = {.event_type = EVENT_MODE_CHANGED, {.mode = curr_mode}};
+            eh.emit(e);
+        }
+
         // Serial.println(uxTaskGetStackHighWaterMark(NULL));
         vTaskDelay(BUTTON_FSM_CYCLE_TIME_MS / portTICK_RATE_MS);  // added to avoid starving other tasks
     }
@@ -490,7 +696,7 @@ void task_servo_code(void *parameter) {
     // Servo Setup
     Servo myservo;
     print("Setting up servo\n");
-    myservo.write(SERVO_NOISE_POS);  // Set servo zero position prior to attaching in order to mitigate power-on glitch
+    myservo.write(SERVO_POS_NOISE);  // Set servo zero position prior to attaching in order to mitigate power-on glitch
     myservo.attach(PIN_SERVO, SERVO_MIN_US, SERVO_MAX_US);
     // servo_pos = myservo.read();  // Determine where the servo is -- Note: this will always report 82, regardless of where servo actually is.
     // we will instead always park the servo at the same position prior to sleeping
@@ -499,10 +705,18 @@ void task_servo_code(void *parameter) {
     BaseType_t q_return;
 
     // Initialize variables
-    curr_pos = SERVO_NOISE_POS;  // this is the default position we should end at on power down
+    curr_pos = SERVO_POS_NOISE;  // this is the default position we should end at on power down
     myservo.write(curr_pos);
 
     target_pos = curr_pos;
+
+    QueueHandle_t q = (QueueHandle_t)parameter;  // q for receiving events
+    event_t received_event = {};
+
+    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
+    if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
+        print("Starting task\n");
+    }
 
     for (;;) {
         curr_pos = myservo.read();
@@ -521,8 +735,20 @@ void task_servo_code(void *parameter) {
             print("Current servo pos: %d, Requested servo pos: %d\n", curr_pos, target_pos);
         }
 #else
-        q_return = xQueueReceive(q_servo, &target_pos, 0);  // check if there is a new value in the queue
-        if ((q_return == pdTRUE) && (curr_pos != target_pos)) {
+        q_return = xQueueReceive(q, &received_event, 0);  // check if there is a new value in the queue
+        if (q_return == pdTRUE) {
+            switch (received_event.event_type) {
+                case EVENT_SERVO_POS_CHANGED:
+                    target_pos = received_event.servo_pos;
+                    break;
+
+                case EVENT_MODE_CHANGED:
+                    target_pos = received_event.mode.sub.get_servo_pos();
+                    break;
+                default:
+                    print("WARNING: task_servo_code received unexpected event type %d!\n", received_event.event_type);
+                    break;
+            }
             print("Current servo pos: %d, Requested servo pos: %d\n", curr_pos, target_pos);
         }
 #endif
