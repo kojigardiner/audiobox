@@ -23,4 +23,10 @@ class Mode {
     Timer _timer = Timer();
 };
 
+typedef struct Modes {
+    Mode display;
+    Mode art;
+    Mode audio;
+} Modes_t;
+
 #endif  // _MODE_H

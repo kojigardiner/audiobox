@@ -12,12 +12,11 @@
 #include "ButtonFSM.h"
 #include "CLI.h"
 #include "Constants.h"
-#include "Event.h"
+#include "EventHandler.h"
 #include "LEDPanel.h"
 #include "MeanCut.h"
 #include "Mode.h"
 #include "Spotify.h"
-#include "Task.h"
 #include "Utils.h"
 
 /*** Function Prototypes ***/
@@ -31,39 +30,38 @@ void run_audio(AudioProcessor *ap, int audio_mode);
 
 /*** Globals ***/
 
-// Queues to move data between tasks
-QueueHandle_t q_spotify;
-QueueHandle_t q_button_to_display;
-QueueHandle_t q_button_to_audio;
-QueueHandle_t q_servo;
-QueueHandle_t q_mode;
-QueueHandle_t q_audio_done;
-QueueHandle_t q_event;
+// EventHandler
+EventHandler eh;
 
 // Semaphores
 SemaphoreHandle_t mutex_leds;
 
 // Task & Queue Handles
+TaskHandle_t task_eventhandler;
+QueueHandle_t q_events;
+
 TaskHandle_t task_buttons;
+QueueHandle_t q_buttons;
+
 TaskHandle_t task_spotify;
+QueueHandle_t q_spotify;
+
 TaskHandle_t task_audio;
+QueueHandle_t q_audio;
+
 TaskHandle_t task_display;
+QueueHandle_t q_display;
+
 TaskHandle_t task_servo;
-TaskHandle_t task_setup;
+QueueHandle_t q_servo;
 
 // Task functions
+void task_eventhandler_code(void *parameter);
+void task_buttons_code(void *parameter);
 void task_spotify_code(void *parameter);
 void task_audio_code(void *parameter);
-void task_buttons_code(void *parameter);
 void task_display_code(void *parameter);
 void task_servo_code(void *parameter);
-void task_setup_code(void *parameter);
-
-typedef struct Modes {
-    Mode display;
-    Mode art;
-    Mode audio;
-} Modes_t;
 
 typedef struct AlbumArt {
     uint16_t full_art_rgb565[64][64] = {{0}};     // full resolution RGB565 artwork
@@ -132,65 +130,100 @@ void setup() {
     // Task setup
     mutex_leds = xSemaphoreCreateMutex();
 
-    q_spotify = xQueueCreate(1, sizeof(Spotify::public_data_t));
-    q_button_to_display = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
-    q_button_to_audio = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
-    q_servo = xQueueCreate(10, sizeof(int));
-    q_mode = xQueueCreate(1, sizeof(Modes_t));
-    q_audio_done = xQueueCreate(1, sizeof(uint8_t));
-    q_event = xQueueCreate(10, sizeof(event_t));
+    // q_spotify = xQueueCreate(1, sizeof(Spotify::public_data_t));
+    // q_button_to_display = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
+    // q_button_to_audio = xQueueCreate(10, sizeof(ButtonFSM::button_fsm_state_t));
+    // q_servo = xQueueCreate(10, sizeof(int));
+    // q_mode = xQueueCreate(1, sizeof(Modes_t));
+    // q_audio_done = xQueueCreate(1, sizeof(uint8_t));
+    // q_event = xQueueCreate(10, sizeof(event_t));
 
     disableCore0WDT();  // hack to avoid various kernel panics
 
-    Task t1 = Task(
+    // Setup eventhandler object and task
+    q_events = xQueueCreate(MAX_EVENTHANDLER_EVENTS, sizeof(event_t));
+    eh = EventHandler(q_events);
+    xTaskCreatePinnedToCore(
+        task_eventhandler_code,  // Function to implement the task
+        "task_eventhandler",     // Name of the task
+        2000,                    // Stack size in words
+        NULL,                    // Task input parameter
+        2,                       // Priority of the task (don't use 0!)
+        &task_eventhandler,      // Task handle
+        1                        // Pinned core
+    );
+
+    q_spotify = xQueueCreate(10, sizeof(event_t));
+    xTaskCreatePinnedToCore(
         task_spotify_code,  // Function to implement the task
         "task_spotify",     // Name of the task
         10000,              // Stack size in words
-        NULL,               // Task input parameter
+        q_spotify,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_spotify,      // Task handle
-        0,                  // Pinned core - 0 is the same core as WiFi
-        q_event);
+        0                   // Pinned core - 0 is the same core as WiFi
+    );
+    eh.register_task(task_spotify, q_spotify);
 
-    Task t2 = Task(
+    q_display = xQueueCreate(10, sizeof(event_t));
+    xTaskCreatePinnedToCore(
         task_display_code,  // Function to implement the task
         "task_display",     // Name of the task
         10000,              // Stack size in words
-        NULL,               // Task input parameter
+        q_display,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_display,      // Task handle
-        1,                  // Pinned core, 1 is preferred to avoid glitches (see: https://www.reddit.com/r/FastLED/comments/rfl6rz/esp32_wifi_on_core_1_fastled_on_core_0/)
-        q_event);
+        1                   // Pinned core, 1 is preferred to avoid glitches (see: https://www.reddit.com/r/FastLED/comments/rfl6rz/esp32_wifi_on_core_1_fastled_on_core_0/)
+    );
+    eh.register_task(task_display, q_display, EVENT_BUTTON_PRESSED | EVENT_SPOTIFY_UPDATED | EVENT_AUDIO_FRAME_DONE);
 
-    Task t3 = Task(
+    q_buttons = xQueueCreate(10, sizeof(event_t));
+    xTaskCreatePinnedToCore(
         task_buttons_code,  // Function to implement the task
         "task_buttons",     // Name of the task
         10000,              // Stack size in words
-        NULL,               // Task input parameter
+        q_buttons,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_buttons,      // Task handle
-        1,                  // Pinned core
-        q_event);
+        1                   // Pinned core
+    );
+    eh.register_task(task_buttons, q_buttons);
 
-    Task t4 = Task(
+    q_audio = xQueueCreate(10, sizeof(event_t));
+    xTaskCreatePinnedToCore(
         task_audio_code,  // Function to implement the task
         "task_audio",     // Name of the task
         30000,            // Stack size in words
-        NULL,             // Task input parameter
+        q_audio,          // Task input parameter
         1,                // Priority of the task (don't use 0!)
         &task_audio,      // Task handle
-        1,                // Pinned core
-        q_event);
+        1                 // Pinned core
+    );
+    eh.register_task(task_audio, q_audio, EVENT_MODE_CHANGED);
 
-    Task t5 = Task(
+    q_servo = xQueueCreate(10, sizeof(event_t));
+    xTaskCreatePinnedToCore(
         task_servo_code,  // Function to implement the task
         "task_servo",     // Name of the task
         2000,             // Stack size in words
-        NULL,             // Task input parameter
+        q_servo,          // Task input parameter
         1,                // Priority of the task (don't use 0!)
         &task_servo,      // Task handle
-        1,                // Pinned core
-        q_event);
+        1                 // Pinned core
+    );
+    eh.register_task(task_servo, q_servo, EVENT_SERVO_POS_CHANGED);
+}
+
+void task_eventhandler_code(void *parameter) {
+    print("task_eventhandler_code running on core ");
+    print("%d\n", xPortGetCoreID());
+
+    event_t e = {};
+    for (;;) {
+        xQueueReceive(q_events, &e, portMAX_DELAY);
+        print("Received event, %d\n", e.event_type);
+        eh.process(e);
+    }
 }
 
 void loop() {
@@ -226,10 +259,14 @@ void task_display_code(void *parameter) {
     // Initialise the xLastWakeTime variable with the current time.
     xLastWakeTime = xTaskGetTickCount();
 
+    QueueHandle_t q = (QueueHandle_t)parameter;  // queue for events
+    event_t received_event = {};                 // event to be received
+
     for (;;) {
         // Check for button push and mode change
-        q_return = xQueueReceive(q_button_to_display, &button_state, 0);  // get a new button state if one is available
-        if (q_return == pdTRUE) {
+        q_return = xQueueReceive(q, &received_event, 0);
+        if (q_return == pdTRUE && received_event.event_type == EVENT_BUTTON_PRESSED) {
+            button_state = received_event.button_state;
             switch (button_state) {
                 case ButtonFSM::MOMENTARY_TRIGGERED:  // change the sub-mode
                     switch (modes.display.get_mode()) {
@@ -249,26 +286,33 @@ void task_display_code(void *parameter) {
                     modes.display.cycle_mode();
                     break;
             }
+            event_t e = {.event_type = EVENT_MODE_CHANGED, {.modes = modes}};
+            eh.emit(e);  // send the mode so the audio task knows what state we're in
         }
 
         if (modes.display.mode_elapsed()) {
             print("Timer elapsed, cycling display mode\n");
             modes.display.cycle_mode();
+            event_t e = {.event_type = EVENT_MODE_CHANGED, {.modes = modes}};
+            eh.emit(e);  // send the mode so the audio task knows what state we're in
         }
 
-        q_return = xQueueReceive(q_spotify, &sp_data, 0);  // get the spotify update if there is one
-        if (q_return == pdTRUE) {
+        if (q_return == pdTRUE && received_event.event_type == EVENT_SPOTIFY_UPDATED) {
+            sp_data = received_event.sp_data;
             if (sp_data.is_active) {
                 percent_complete = sp_data.track_progress * 100;
                 // Serial.println("Playing..." + String(percent_complete) + "%");
             } else {
                 modes.display.set_mode(DISPLAY_ART);  // will be blank when there's no art
+                event_t e = {.event_type = EVENT_MODE_CHANGED, {.modes = modes}};
+                eh.emit(e);  // send the mode so the audio task knows what state we're in
             }
             if (sp_data.art_changed) {
                 modes.display.set_mode(DISPLAY_ART);  // show art on track change
+                event_t e = {.event_type = EVENT_MODE_CHANGED, {.modes = modes}};
+                eh.emit(e);  // send the mode so the audio task knows what state we're in
             }
         }
-        xQueueSend(q_mode, &modes, 0);  // send the mode so the audio task knows what state we're in
 
         // Display based on the mode
         switch (modes.display.get_mode()) {
@@ -299,10 +343,12 @@ void task_display_code(void *parameter) {
                     show_leds();
 
                     int new_pos = SERVO_ART_POS;
-                    xQueueSend(q_servo, &new_pos, 0);  // move after we have displayed
-                } else {                               // no art, go blank
+                    event_t e = {.event_type = EVENT_SERVO_POS_CHANGED, {.servo_pos = new_pos}};
+                    eh.emit(e);  // move after we have displayed
+                } else {         // no art, go blank
                     int new_pos = SERVO_NOISE_POS;
-                    xQueueSend(q_servo, &new_pos, 0);  // move before we display
+                    event_t e = {.event_type = EVENT_SERVO_POS_CHANGED, {.servo_pos = new_pos}};
+                    eh.emit(e);  // move before we display
                     FastLED.clear();
                     show_leds();
                 }
@@ -310,10 +356,11 @@ void task_display_code(void *parameter) {
             }
             case DISPLAY_AUDIO: {
                 // int new_pos = SERVO_NOISE_POS;  // this moves to the audio function
-                // xQueueSend(q_servo, &new_pos, 0);
+                // event_t e = {.event_type = EVENT_SERVO_POS_CHANGED, .servo_pos = new_pos};
+                // eh.emit(e);
 
                 uint8_t done;
-                xQueueReceive(q_audio_done, &done, portMAX_DELAY);
+                // xQueueReceive(q_audio_done, &done, portMAX_DELAY);    TODO: need to fix the loop so we can still catch this event
                 show_leds();
                 break;
             }
@@ -344,21 +391,29 @@ void task_audio_code(void *parameter) {
     // TODO: is this correct? since this task is not operating at FPS speed
     int max_blend_count = int((SERVO_CYCLE_TIME_MS / 1000.0 * (SERVO_ART_POS - SERVO_NOISE_POS)) * FPS * 1.25);
 
-    xQueueReceive(q_mode, &modes, portMAX_DELAY);  // at the start, wait until we get a mode indication
+    QueueHandle_t q = (QueueHandle_t)parameter;  // q for receiving events
+    event_t received_event = {};
+
+    xQueueReceive(q, &received_event, portMAX_DELAY);  // at the start, wait until we get a mode indication, TODO: need to check that event is of type MODE_CHANGE!!
+    modes = received_event.modes;
 
     // Initialise the xLastWakeTime variable with the current time.
     xLastWakeTime = xTaskGetTickCount();
 
     int last_audio_mode = -1;
     for (;;) {
-        if (ap.is_active()) {                             // don't run the loop if AP failed to init
-            q_return = xQueueReceive(q_mode, &modes, 0);  // check if there is a new mode, if not, we just use the last mode
+        if (ap.is_active()) {                                 // don't run the loop if AP failed to init
+            q_return = xQueueReceive(q, &received_event, 0);  // check if there is a new mode, if not, we just use the last mode
 
+            if (q_return == pdTRUE && received_event.event_type == EVENT_MODE_CHANGED) {
+                modes = received_event.modes;
+            }
             if (modes.display.get_mode() == DISPLAY_AUDIO) {
                 int audio_mode = modes.audio.get_mode();
 
                 int new_pos = AUDIO_SERVO_POSITIONS[audio_mode];
-                xQueueSend(q_servo, &new_pos, 0);  // move the servo
+                event_t e = {.event_type = EVENT_SERVO_POS_CHANGED, {.servo_pos = new_pos}};
+                eh.emit(e);
 
                 run_audio(&ap, audio_mode);
 
@@ -384,8 +439,9 @@ void task_audio_code(void *parameter) {
                 }
 
                 xSemaphoreGive(mutex_leds);
-                uint8_t done;
-                xQueueSend(q_audio_done, &done, 0);
+
+                e = {.event_type = EVENT_AUDIO_FRAME_DONE};
+                eh.emit(e);
             } else {
                 blend_counter = 0;  // reset the blend counter
             }
@@ -437,7 +493,8 @@ void task_spotify_code(void *parameter) {
             if (sp_data.art_changed) {
                 decode_art(sp_data.art_data, sp_data.art_num_bytes);
             }
-            xQueueSend(q_spotify, &sp_data, 0);  // set timeout to zero so loop will continue until display is updated
+            event_t e = {.event_type = EVENT_SPOTIFY_UPDATED, {.sp_data = sp_data}};
+            eh.emit(e);  // set timeout to zero so loop will continue until display is updated
         } else {
             print("Error: WiFi not connected! status = %d\n", WiFi.status());
         }
@@ -457,7 +514,8 @@ void task_buttons_code(void *parameter) {
         // Check for power off
         if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
             int new_pos = SERVO_NOISE_POS;
-            xQueueSend(q_servo, &new_pos, 0);
+            event_t e = {.event_type = EVENT_SERVO_POS_CHANGED, {.servo_pos = new_pos}};
+            eh.emit(e);
 
             xSemaphoreTake(mutex_leds, portMAX_DELAY);
 
@@ -470,14 +528,14 @@ void task_buttons_code(void *parameter) {
         button_state = button_fsm.get_state();
 
         if (button_state == ButtonFSM::HOLD_TRIGGERED) {  // change modes
-            xQueueSend(q_button_to_display, &button_state, 0);
-            xQueueSend(q_button_to_audio, &button_state, 0);
+            event_t e = {.event_type = EVENT_BUTTON_PRESSED, {.button_state = button_state}};
+            eh.emit(e);
 
             print("Hold button\n");
         }
         if (button_state == ButtonFSM::MOMENTARY_TRIGGERED) {  // move the servos
-            xQueueSend(q_button_to_display, &button_state, 0);
-            xQueueSend(q_button_to_audio, &button_state, 0);
+            event_t e = {.event_type = EVENT_BUTTON_PRESSED, {.button_state = button_state}};
+            eh.emit(e);
 
             print("Momentary button\n");
         }
@@ -508,6 +566,9 @@ void task_servo_code(void *parameter) {
 
     target_pos = curr_pos;
 
+    QueueHandle_t q = (QueueHandle_t)parameter;  // q for receiving events
+    event_t received_event = {};
+
     for (;;) {
         curr_pos = myservo.read();
 
@@ -525,7 +586,10 @@ void task_servo_code(void *parameter) {
             print("Current servo pos: %d, Requested servo pos: %d\n", curr_pos, target_pos);
         }
 #else
-        q_return = xQueueReceive(q_servo, &target_pos, 0);  // check if there is a new value in the queue
+        q_return = xQueueReceive(q, &received_event, 0);  // check if there is a new value in the queue
+        if (q_return == pdTRUE && received_event.event_type == EVENT_SERVO_POS_CHANGED) {
+            target_pos = received_event.servo_pos;
+        }
         if ((q_return == pdTRUE) && (curr_pos != target_pos)) {
             print("Current servo pos: %d, Requested servo pos: %d\n", curr_pos, target_pos);
         }

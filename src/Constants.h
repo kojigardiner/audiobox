@@ -15,6 +15,9 @@ const char* const PREFS_SPOTIFY_CLIENT_SECRET_KEY = "sp_cli_sec";
 const char* const PREFS_SPOTIFY_AUTH_B64_KEY = "sp_auth_b64";
 const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 
+#define MAX_EVENTHANDLER_TASKS 32
+#define MAX_EVENTHANDLER_EVENTS 32
+
 #define HTTP_MAX_CHARS 512    // max number of chars for http processing
 #define CLI_MAX_CHARS 256     // max number of chars for CLI input
 #define MAX_CLI_MENU_ITEMS 9  // max items per level of CLI
