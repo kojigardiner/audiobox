@@ -8,25 +8,26 @@
 
 class Mode {
    public:
-    Mode();
-    Mode(int initial_mode, int num_modes, const unsigned long *durations = NULL);
+    // Constructors
+    Mode(){};
+    Mode(int id, uint8_t servo_pos, int duration_ms = 0);
 
-    void cycle_mode();
-    void set_mode(int mode);
-    int get_mode();
-    bool mode_elapsed();
+    uint8_t get_servo_pos();  // get servo position associate with the mode
+    bool elapsed();           // check if a mode's timer has elapsed
+    int id();                 // return the mode id
+    void reset_timer();
+    void description();
 
    private:
-    int _num_modes;
-    int _mode;
-    const unsigned long *_durations;
-    Timer _timer = Timer();
+    int _id;
+    unsigned long _duration_ms;
+    Timer _timer;
+    uint8_t _servo_pos;
 };
 
-typedef struct Modes {
-    Mode display;
-    Mode art;
-    Mode audio;
-} Modes_t;
+struct curr_mode_t {
+    Mode main;
+    Mode sub;
+};
 
 #endif  // _MODE_H

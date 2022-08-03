@@ -236,6 +236,8 @@ bool Spotify::_get_player() {
         case HTTP_CODE_NO_CONTENT:
             print("%d:%s: Playback not available/active\n", httpCode, __func__);
             _token_expired = false;
+            _is_active = false;
+            _is_playing = false;
             ret = false;
             break;
         case HTTP_CODE_BAD_REQUEST:

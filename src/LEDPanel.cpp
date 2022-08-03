@@ -84,22 +84,22 @@ void LEDPanel::set_audio_pattern(int mode) {
     delete _audio_pattern;
 
     switch (mode) {
-        case AUDIO_SNAKE_GRID:
+        case MODE_AUDIO_SNAKE_GRID:
             _audio_pattern = new LEDSymSnakeGridPattern(this);
             break;
-        case AUDIO_NOISE:
+        case MODE_AUDIO_NOISE:
             _audio_pattern = new LEDNoisePattern(this);
             break;
-        case AUDIO_BARS:
+        case MODE_AUDIO_BARS:
             _audio_pattern = new LEDBarsPattern(this);
             break;
-        case AUDIO_OUTRUN_BARS:
+        case MODE_AUDIO_OUTRUN_BARS:
             _audio_pattern = new LEDOutrunBarsPattern(this);
             break;
-        case AUDIO_CENTER_BARS:
+        case MODE_AUDIO_CENTER_BARS:
             _audio_pattern = new LEDCenterBarsPattern(this);
             break;
-        case AUDIO_WATERFALL:
+        case MODE_AUDIO_WATERFALL:
             _audio_pattern = new LEDWaterfallPattern(this);
             break;
         default:

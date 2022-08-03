@@ -7,12 +7,13 @@ EventHandler::EventHandler(QueueHandle_t q_events) {
     _q_events = q_events;
 }
 
-void EventHandler::register_task(TaskHandle_t t, QueueHandle_t q, uint32_t event_types) {
+void EventHandler::register_task(TaskHandle_t *t, QueueHandle_t q, uint32_t event_types) {
     if (_num_tasks < MAX_EVENTHANDLER_TASKS) {
         _task_associations[_num_tasks] = {.t = t,
                                           .q = q,
                                           .subscribed_events = event_types};
         _num_tasks++;
+        print("Task %d registered with subscription to %d\n", t, event_types);
     } else {
         print("WARNING: register_task failed, too many tasks!\n");
     }
@@ -24,7 +25,7 @@ void EventHandler::emit(event_t e) {
     }
 }
 
-void EventHandler::subscribe(TaskHandle_t t, EventType et) {
+void EventHandler::subscribe(TaskHandle_t *t, EventType et) {
     for (int i = 0; i < _num_tasks; i++) {
         if (_task_associations[i].t == t) {
             _task_associations[i].subscribed_events |= et;
@@ -34,7 +35,7 @@ void EventHandler::subscribe(TaskHandle_t t, EventType et) {
     print("WARNING: subscribe failed, task not in registry!\n");
 }
 
-void EventHandler::unsubscribe(TaskHandle_t t, EventType et) {
+void EventHandler::unsubscribe(TaskHandle_t *t, EventType et) {
     for (int i = 0; i < _num_tasks; i++) {
         if (_task_associations[i].t == t) {
             _task_associations[i].subscribed_events &= ~et;
@@ -44,7 +45,7 @@ void EventHandler::unsubscribe(TaskHandle_t t, EventType et) {
     print("WARNING: unsubscribe failed, task not in registry!\n");
 }
 
-bool EventHandler::is_subscribed(TaskHandle_t t, EventType et) {
+bool EventHandler::is_subscribed(TaskHandle_t *t, EventType et) {
     for (int i = 0; i < _num_tasks; i++) {
         if (_task_associations[i].t == t) {
             return (_task_associations[i].subscribed_events & et);
@@ -56,9 +57,9 @@ bool EventHandler::is_subscribed(TaskHandle_t t, EventType et) {
 
 void EventHandler::process(event_t e) {
     for (int i = 0; i < _num_tasks; i++) {
-        if (_task_associations[i].subscribed_events | e.event_type) {
+        if (_task_associations[i].subscribed_events & e.event_type) {
             if (xQueueSend(_task_associations[i].q, &e, 0) != pdTRUE) {
-                // print("WARNING: process event failed, task queue is full!\n");
+                print("WARNING: process event failed, task queue is full!\n");
             }
         }
     }
