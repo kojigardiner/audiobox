@@ -24,8 +24,13 @@
 
 // Display Functions
 bool copy_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap);  // callback function for JPG decoder
+bool display_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap);
+
 void display_full_art(uint8_t offset_row, uint8_t offset_col);
 void decode_art(uint8_t *art_data, unsigned long art_num_bytes);
+
+void display_image(const char *filepath);
+bool download_image(const char *url, const char *filepath);
 
 void run_audio(AudioProcessor *ap, int audio_mode);
 void test_modes();
@@ -102,18 +107,15 @@ void setup() {
     print("Loading preferences\n");
 
     if (!check_prefs()) {
-        print("Missing preferences! Power off and power on while pressing the main button to configure preferences.\n");
+        print("Missing preferences! Power off and power on while holding down the main button to configure preferences.\n");
     }
 
     // Wifi setup
-    connect_wifi();
+    if (!connect_wifi()) {
+        print("Wifi could not connect! Power off and power on while holding down the main button to configure preferences.\n");
+    }
 
     // test_modes();
-
-    // JPG decoder setup
-    print("Setting up JPG decoder\n");
-    TJpgDec.setJpgScale(1);              // Assuming 64x64 image, will rescale to 16x16
-    TJpgDec.setCallback(copy_jpg_data);  // The decoder must be given the exact name of the rendering function above
 
     // Filessystem setup
     print("Setting up filesystem\n");
@@ -149,7 +151,7 @@ void setup() {
     eh = EventHandler(q_events);
 
     q_spotify = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_spotify, q_spotify, EVENT_START);
+    eh.register_task(&task_spotify, q_spotify, EVENT_START | EVENT_MODE_CHANGED);
 
     q_display = xQueueCreate(10, sizeof(event_t));
     eh.register_task(&task_display, q_display, EVENT_START | EVENT_MODE_CHANGED | EVENT_SPOTIFY_UPDATED | EVENT_AUDIO_FRAME_DONE);
@@ -404,6 +406,23 @@ void task_display_code(void *parameter) {
                 }
                 break;
             }
+            case MODE_MAIN_IMAGE:
+                xSemaphoreTake(mutex_leds, portMAX_DELAY);
+                char rcvd[CLI_MAX_CHARS];
+                const char *filepath = "/image.jpg";
+
+                // print("Enter url to jpg image: \n");
+                // get_input(rcvd);
+
+                if (!download_image("https://i.pinimg.com/736x/1a/b7/51/1ab75139f3b1e6ecc1f59ffc2a4b0f2e--mario-bros-mario-kart.jpg", filepath)) {
+                    print("Failed to download image!\n");
+                } else {
+                    display_image(filepath);
+                }
+
+                xSemaphoreGive(mutex_leds);
+                show_leds();
+                break;
         }
         lp.blend_palettes(PALETTE_CHANGE_RATE);
 
@@ -425,16 +444,14 @@ void task_audio_code(void *parameter) {
 
     CRGB last_leds[NUM_LEDS] = {0};  // capture the last led state before transitioning to a new mode;
     BaseType_t q_return;
+    int servo_pos_delta = abs(SERVO_POS_ART - SERVO_POS_NOISE);
     int blend_counter = 0;
-
-    // calculate the number of cycles to take to fully blend based on servo move time
-    // TODO: is this correct? since this task is not operating at FPS speed
-    int max_blend_count = int((SERVO_CYCLE_TIME_MS / 1000.0 * (SERVO_POS_ART - SERVO_POS_NOISE)) * FPS * 1.25);
+    int max_blend_count = int((SERVO_CYCLE_TIME_MS / 1000.0 * servo_pos_delta) * FPS * 1.25);
 
     QueueHandle_t q = (QueueHandle_t)parameter;  // q for receiving events
     event_t received_event = {};
     event_t e = {};
-    curr_mode_t curr_mode;
+    curr_mode_t curr_mode, last_mode;
 
     q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
     if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
@@ -459,6 +476,7 @@ void task_audio_code(void *parameter) {
             if (q_return == pdTRUE) {
                 switch (received_event.event_type) {
                     case EVENT_MODE_CHANGED:
+                        last_mode = curr_mode;
                         curr_mode = received_event.mode;
                         break;
                     default:
@@ -474,6 +492,9 @@ void task_audio_code(void *parameter) {
                 // Blend with the last image on the led before we changed modes
                 if (blend_counter == 0) {  // if the counter reset to 0 it means we changed modes
                     lp.copy_leds(last_leds, NUM_LEDS);
+                    // calculate the number of cycles to take to fully blend based on servo move time, note this changes based on the mode change
+                    servo_pos_delta = abs(last_mode.sub.get_servo_pos() - curr_mode.sub.get_servo_pos());
+                    max_blend_count = int((SERVO_CYCLE_TIME_MS / 1000.0 * servo_pos_delta) * FPS * 1.25);
                 }
 
                 if (last_audio_mode != audio_mode) {
@@ -485,7 +506,7 @@ void task_audio_code(void *parameter) {
 
                 if (blend_counter <= max_blend_count) {
                     for (int i = 0; i < NUM_LEDS; i++) {
-                        int blend_factor = int(round(pow(float(blend_counter) / max_blend_count, 2.2) * 255));
+                        int blend_factor = (float)blend_counter / max_blend_count * 255;  // int(round(pow(float(blend_counter) / max_blend_count, 2.2) * 255));
                         lp.set(i, blend(last_leds[i], lp.get(i), blend_factor));
                     }
                     blend_counter += 1;
@@ -533,10 +554,18 @@ void task_spotify_code(void *parameter) {
     QueueHandle_t q = (QueueHandle_t)parameter;
     event_t received_event = {};
     BaseType_t q_return;
+    curr_mode_t curr_mode;
 
     q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
     if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
         print("Starting task\n");
+    }
+
+    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // at the start, wait until we get a mode indication
+    if (q_return == pdTRUE && received_event.event_type == EVENT_MODE_CHANGED) {
+        curr_mode = received_event.mode;
+    } else {
+        print("WARNING: Did not get a valid initial mode!\n");
     }
 
     if (!prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY, client_id, CLI_MAX_CHARS) ||
@@ -547,16 +576,21 @@ void task_spotify_code(void *parameter) {
 
     Spotify sp = Spotify(client_id, auth_b64, refresh_token);
     prefs.end();
-
     for (;;) {
+        q_return = xQueueReceive(q, &received_event, 0);
+        if (q_return == true && received_event.event_type == EVENT_MODE_CHANGED) {
+            curr_mode = received_event.mode;
+        }
         if ((WiFi.status() == WL_CONNECTED)) {
-            sp.update();
-            Spotify::public_data_t sp_data = sp.get_data();
-            if (sp_data.art_changed) {
-                decode_art(sp_data.art_data, sp_data.art_num_bytes);
+            if (curr_mode.main.id() != MODE_MAIN_IMAGE) {  // only run spotify loop if we are not in image download mode; otherwise the https code will
+                sp.update();
+                Spotify::public_data_t sp_data = sp.get_data();
+                if (sp_data.art_changed) {
+                    decode_art(sp_data.art_data, sp_data.art_num_bytes);
+                }
+                event_t e = {.event_type = EVENT_SPOTIFY_UPDATED, {.sp_data = sp_data}};
+                eh.emit(e);  // set timeout to zero so loop will continue until display is updated
             }
-            event_t e = {.event_type = EVENT_SPOTIFY_UPDATED, {.sp_data = sp_data}};
-            eh.emit(e);  // set timeout to zero so loop will continue until display is updated
         } else {
             print("Error: WiFi not connected! status = %d\n", WiFi.status());
         }
@@ -581,7 +615,8 @@ void task_buttons_code(void *parameter) {
 
     Mode MAIN_MODES_LIST[] = {
         Mode(MODE_MAIN_ART, SERVO_POS_ART, DURATION_MS_ART),
-        Mode(MODE_MAIN_AUDIO, SERVO_POS_NOISE, DURATION_MS_AUDIO)};
+        Mode(MODE_MAIN_AUDIO, SERVO_POS_NOISE, DURATION_MS_AUDIO)};  //,
+    // Mode(MODE_MAIN_IMAGE, SERVO_POS_ART, DURATION_MS_AUDIO)};
 
     Mode ART_SUB_MODES_LIST[] = {
         Mode(MODE_ART_WITHOUT_ELAPSED, SERVO_POS_ART),
@@ -595,9 +630,12 @@ void task_buttons_code(void *parameter) {
         Mode(MODE_AUDIO_CENTER_BARS, SERVO_POS_BARS),
         Mode(MODE_AUDIO_WATERFALL, SERVO_POS_NOISE)};
 
+    // Mode IMAGE_SUB_MODES_LIST[] = {};
+
     ModeSequence art_sub_modes = ModeSequence(ART_SUB_MODES_LIST, ARRAY_SIZE(ART_SUB_MODES_LIST));
     ModeSequence audio_sub_modes = ModeSequence(AUDIO_SUB_MODES_LIST, ARRAY_SIZE(AUDIO_SUB_MODES_LIST));
-    ModeSequence sub_modes[] = {art_sub_modes, audio_sub_modes};
+    // ModeSequence image_sub_modes = ModeSequence(IMAGE_SUB_MODES_LIST, ARRAY_SIZE(IMAGE_SUB_MODES_LIST));
+    ModeSequence sub_modes[] = {art_sub_modes, audio_sub_modes};  //, image_sub_modes};
 
     ModeSequence main_modes = ModeSequence(MAIN_MODES_LIST, ARRAY_SIZE(MAIN_MODES_LIST), sub_modes);
 
@@ -620,14 +658,15 @@ void task_buttons_code(void *parameter) {
 
         // Check for power off
         if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
+            // we want to park the display at the SERVO_POS_NOISE, which is the start position
             e = {.event_type = EVENT_SERVO_POS_CHANGED, {.servo_pos = SERVO_POS_NOISE}};
             eh.emit(e);
 
             xSemaphoreTake(mutex_leds, portMAX_DELAY);
-
-            vTaskDelay(((SERVO_POS_ART - SERVO_POS_NOISE) * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
-            print("Switch is high, going to sleep\n");
             FastLED.clear(true);
+            int servo_pos_delta = abs(curr_mode.sub.get_servo_pos() - SERVO_POS_NOISE);
+            vTaskDelay((servo_pos_delta * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
+            print("Switch is high, going to sleep\n");
             esp_deep_sleep_start();
         }
         button1_fsm.advance();
@@ -842,6 +881,9 @@ bool copy_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitma
 // Decode art from jpg into full_art, and calculate palette
 void decode_art(uint8_t *art_data, unsigned long art_num_bytes) {
     print("Decoding art, %d bytes\n", art_num_bytes);
+
+    TJpgDec.setJpgScale(1);                          // no rescaling
+    TJpgDec.setCallback(copy_jpg_data);              // The decoder must be given the exact name of the rendering function above
     TJpgDec.drawJpg(0, 0, art_data, art_num_bytes);  // decode and copy jpg data into full_art
 
     // Calculate color palette
@@ -860,4 +902,126 @@ void decode_art(uint8_t *art_data, unsigned long art_num_bytes) {
                                         album_art.palette_crgb[4], album_art.palette_crgb[5], album_art.palette_crgb[6], album_art.palette_crgb[7],
                                         album_art.palette_crgb[8], album_art.palette_crgb[9], album_art.palette_crgb[10], album_art.palette_crgb[11],
                                         album_art.palette_crgb[12], album_art.palette_crgb[13], album_art.palette_crgb[14], album_art.palette_crgb[15]));
+}
+
+bool download_image(const char *url, const char *filepath) {
+    bool ret;
+    int start_ms = millis();
+    print("Downloading %s\n", url);
+
+    File file = SPIFFS.open(filepath, FILE_WRITE);
+    if (!file) {
+        print("Could not open filepath: %s\n", filepath);
+        return false;
+    }
+
+    HTTPClient http;
+    http.begin(url);
+
+    int httpCode = http.GET();
+
+    if (httpCode == HTTP_CODE_OK) {
+        // Get length of document (is -1 when Server sends no Content-Length header)
+        int len = http.getSize();
+        print("%d bytes\n", len);
+
+        // Create buffer for read
+        uint8_t buff[128] = {0};
+
+        // Get tcp stream
+        WiFiClient *stream = http.getStreamPtr();
+
+        // Read all data from server
+        while (http.connected() && (len > 0 || len == -1)) {
+            // Get available data size
+            size_t size = stream->available();
+
+            if (size) {
+                // Read up to 128 bytes
+                int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
+
+                // Write it to file
+                file.write(buff, c);
+
+                // Calculate remaining bytes
+                if (len > 0) {
+                    len -= c;
+                }
+            }
+            yield();
+        }
+        print("%dms to download file\n", millis() - start_ms);
+        ret = true;
+    } else {
+        print("%d:%s: Unrecognized error\n", httpCode, __func__);
+        ret = false;
+    }
+    file.close();
+    http.end();
+
+    return ret;
+}
+
+void display_image(const char *filepath) {
+    // Check that file is accessible
+    File file = SPIFFS.open(filepath);
+    if (!file) {
+        print("Failed to open filepath: %s\n", filepath);
+        return;
+    }
+    print("file size is: %d\n", file.size());
+    file.close();
+
+    uint16_t w, h, max_dim;
+    TJpgDec.setCallback(display_jpg_data);  // The decoder must be given the exact name of the rendering function above
+    TJpgDec.getFsJpgSize(&w, &h, filepath);
+    print("Image w = %d, h = %d\n", w, h);
+    if (w > GRID_W || h > GRID_H) {
+        max_dim = max(w, h);
+        double raw_scale = (double)max_dim / GRID_H;
+        int scale2 = constrain(int(round(log2(raw_scale))), 0, 3);
+        int scale = (int)pow(2, scale2);
+        print("Setting jpg scale to %d\n", scale);
+        TJpgDec.setJpgScale(scale);
+    } else {
+        TJpgDec.setJpgScale(1);
+    }
+
+    TJpgDec.drawFsJpg(0, 0, filepath);
+
+    FastLED.show();
+}
+
+// Display image directly to LEDs
+bool display_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
+    // Note bitmap is in RGB565 format!!!
+    // Stop further decoding as image is running off bottom of screen
+    if (y >= GRID_H) return false;
+
+    for (int row = 0; row < h; row++) {
+        for (int col = 0; col < w; col++) {
+            uint16_t rgb565 = bitmap[row * w + col];
+            uint8_t r5 = (rgb565 >> 11) & 0x1F;
+            uint8_t g6 = (rgb565 >> 5) & 0x3F;
+            uint8_t b5 = (rgb565)&0x1F;
+
+            uint8_t r8 = round((float(r5) / 31) * 255);
+            uint8_t g8 = round((float(g6) / 63) * 255);
+            uint8_t b8 = round((float(b5) / 31) * 255);
+
+            // Serial.println(r5);
+            // Serial.println(g6);
+            // Serial.println(b5);
+
+            // Serial.println(r8);
+            // Serial.println(g8);
+            // Serial.println(b8);
+
+            // Serial.println();
+
+            lp.set_xy(x + col, y + row, CRGB(r8, g8, b8), true);
+        }
+    }
+
+    return true;
 }

@@ -29,7 +29,10 @@ bool check_prefs() {
 }
 
 // Connect to wifi network
-void connect_wifi() {
+bool connect_wifi() {
+    unsigned long start_ms;
+    bool ret = false;
+
     if (WiFi.status() != WL_CONNECTED) {
         // get wifi network info from prefs
 
@@ -51,16 +54,24 @@ void connect_wifi() {
         WiFi.begin(wifi_ssid, wifi_pass);
 
         bool led_state = HIGH;
+        start_ms = millis();
         while (WiFi.status() != WL_CONNECTED) {
             digitalWrite(PIN_BUTTON_LED, led_state);  // blink the LED
             led_state = !led_state;
             Serial.print(".");
             delay(500);
+            if (millis() - start_ms > WIFI_TIMEOUT_MS) {
+                print("connection timed out\n");
+                return false;
+            }
         }
     }
+
     print("connected\n");
     print("IP: %s\n", WiFi.localIP().toString().c_str());
     print("RSSI: %d\n", WiFi.RSSI());
+
+    return true;
 }
 
 // Set a value in preference. Pass an optional "value" key to set that value, otherwise prompt the user
