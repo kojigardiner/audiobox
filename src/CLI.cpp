@@ -23,6 +23,7 @@ void start_cli() {
     const CLIMenuItem items_wifi[] = {
         CLIMenuItem("Check current wifi SSID", &check_wifi_prefs),
         CLIMenuItem("Setup new wifi SSID", &set_wifi_prefs),
+        CLIMenuItem("Test wifi connection", &test_wifi_connection),
     };
     menu_wifi = CLIMenu("Wifi Menu", items_wifi, ARRAY_SIZE(items_wifi), &menu_main);
 
@@ -131,4 +132,10 @@ void clear_prefs() {
     print("Clearing preferences\n");
     prefs.clear();
     prefs.end();
+}
+
+void test_wifi_connection() {
+    connect_wifi();
+    print("disconnecting\n");
+    WiFi.disconnect();
 }
