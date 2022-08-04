@@ -602,7 +602,7 @@ void task_spotify_code(void *parameter) {
             if (curr_mode.main.id() != MODE_MAIN_IMAGE) {  // only run spotify loop if we are not in image download mode; otherwise the https code will
                 sp.update();
                 Spotify::public_data_t sp_data = sp.get_data();
-                if (sp_data.art_changed) {
+                if (sp_data.art_changed && sp_data.is_active) {  // only update art if spotify is active
                     decode_art(sp_data.art_data, sp_data.art_num_bytes);
                 }
                 event_t e = {.event_type = EVENT_SPOTIFY_UPDATED, {.sp_data = sp_data}};
@@ -687,7 +687,7 @@ void task_mode_code(void *parameter) {
             switch (received_event.event_type) {
                 case EVENT_SPOTIFY_UPDATED:
                     sp_data = received_event.sp_data;
-                    if (sp_data.art_changed) {
+                    if (sp_data.art_changed || !sp_data.is_active) {
                         main_modes.set(MODE_MAIN_ART);  // show art on track change
                         mode_changed = true;
                     }

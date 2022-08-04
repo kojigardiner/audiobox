@@ -101,17 +101,19 @@ void Spotify::update() {
         while (!_get_token()) {  // keep trying to get a token
             delay(1000);
         }
-        _reset_variables();
+        //_reset_variables();
     }
 
-    if (!_get_player()) {
-        _reset_variables();
-    }
+    // if (!_get_player()) {
+    //     _reset_variables();
+    // }
+    _get_player();
 
     if (_track_changed) {
-        if (!_get_features()) {
-            _reset_variables();
-        } else {
+        // if (!_get_features()) {
+        //     _reset_variables();
+        // } else {
+        if (_get_features()) {
             print_info();
         }
     }
