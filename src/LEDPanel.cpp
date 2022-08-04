@@ -37,7 +37,7 @@ void LEDPanel::set(int idx, CRGB value) {
 
 void LEDPanel::set_xy(int x, int y, CRGB value, bool start_top_left) {
     int idx = grid_to_idx(x, y, start_top_left);
-    _leds[idx] = value;
+    if (idx >= 0 && idx < _num_leds) _leds[idx] = value;
 }
 
 /*** Get Index of LED on a serpentine grid ***/

@@ -112,7 +112,10 @@ void set_spotify_account() {
         return;
     }
 
-    connect_wifi();
+    if (!connect_wifi()) {
+        prefs.end();
+        return;
+    }
 
     if (Spotify::request_user_auth(client_id, auth_b64, refresh_token)) {
         set_pref(&prefs, PREFS_SPOTIFY_REFRESH_TOKEN_KEY, refresh_token);

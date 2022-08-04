@@ -15,6 +15,8 @@ const char* const PREFS_SPOTIFY_CLIENT_SECRET_KEY = "sp_cli_sec";
 const char* const PREFS_SPOTIFY_AUTH_B64_KEY = "sp_auth_b64";
 const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 
+#define WIFI_TIMEOUT_MS 10000  // how long to wait on wifi connect before bailing out
+
 #define MAX_EVENTHANDLER_TASKS 32
 #define MAX_EVENTHANDLER_EVENTS 32
 
@@ -85,6 +87,7 @@ const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 enum MainMode {
     MODE_MAIN_ART,
     MODE_MAIN_AUDIO,
+    MODE_MAIN_IMAGE,
     MODE_MAIN_MODES_MAX,
 };
 enum ArtSubMode {
