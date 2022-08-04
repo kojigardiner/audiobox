@@ -27,6 +27,9 @@ class ButtonFSM {
     // Return current state in state machine
     button_fsm_state_t get_state();
 
+    // Get id of button
+    int get_id();
+
    private:
     // Read physical button pin
     void _read();

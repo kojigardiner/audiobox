@@ -62,6 +62,9 @@ QueueHandle_t q_display;
 TaskHandle_t task_servo;
 QueueHandle_t q_servo;
 
+TaskHandle_t task_mode;
+QueueHandle_t q_mode;
+
 // Task functions
 void task_eventhandler_code(void *parameter);
 void task_buttons_code(void *parameter);
@@ -69,6 +72,7 @@ void task_spotify_code(void *parameter);
 void task_audio_code(void *parameter);
 void task_display_code(void *parameter);
 void task_servo_code(void *parameter);
+void task_mode_code(void *parameter);
 
 typedef struct AlbumArt {
     uint16_t full_art_rgb565[64][64] = {{0}};     // full resolution RGB565 artwork
@@ -157,13 +161,16 @@ void setup() {
     eh.register_task(&task_display, q_display, EVENT_START | EVENT_MODE_CHANGED | EVENT_SPOTIFY_UPDATED | EVENT_AUDIO_FRAME_DONE);
 
     q_buttons = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_buttons, q_buttons, EVENT_START | EVENT_SPOTIFY_UPDATED);
+    eh.register_task(&task_buttons, q_buttons, EVENT_START);
 
     q_audio = xQueueCreate(10, sizeof(event_t));
     eh.register_task(&task_audio, q_audio, EVENT_START | EVENT_MODE_CHANGED);
 
     q_servo = xQueueCreate(10, sizeof(event_t));
     eh.register_task(&task_servo, q_servo, EVENT_START | EVENT_SERVO_POS_CHANGED | EVENT_MODE_CHANGED);
+
+    q_mode = xQueueCreate(10, sizeof(event_t));
+    eh.register_task(&task_mode, q_mode, EVENT_START | EVENT_BUTTON_PRESSED | EVENT_SPOTIFY_UPDATED);
 
     xTaskCreatePinnedToCore(
         task_spotify_code,  // Function to implement the task
@@ -188,11 +195,21 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_buttons_code,  // Function to implement the task
         "task_buttons",     // Name of the task
-        10000,              // Stack size in words
+        5000,               // Stack size in words
         q_buttons,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_buttons,      // Task handle
         1                   // Pinned core
+    );
+
+    xTaskCreatePinnedToCore(
+        task_mode_code,  // Function to implement the task
+        "task_mode",     // Name of the task
+        5000,            // Stack size in words
+        q_mode,          // Task input parameter
+        1,               // Priority of the task (don't use 0!)
+        &task_mode,      // Task handle
+        1                // Pinned core
     );
 
     xTaskCreatePinnedToCore(
@@ -493,7 +510,7 @@ void task_audio_code(void *parameter) {
                 if (blend_counter == 0) {  // if the counter reset to 0 it means we changed modes
                     lp.copy_leds(last_leds, NUM_LEDS);
                     // calculate the number of cycles to take to fully blend based on servo move time, note this changes based on the mode change
-                    servo_pos_delta = abs(last_mode.sub.get_servo_pos() - curr_mode.sub.get_servo_pos());
+                    servo_pos_delta = abs(curr_mode.sub.get_servo_pos() - last_mode.sub.get_servo_pos());
                     max_blend_count = int((SERVO_CYCLE_TIME_MS / 1000.0 * servo_pos_delta) * FPS * 1.25);
                 }
 
@@ -599,19 +616,13 @@ void task_spotify_code(void *parameter) {
     vTaskDelete(NULL);
 }
 
-void task_buttons_code(void *parameter) {
-    print("task_buttons_code running on core ");
+void task_mode_code(void *parameter) {
+    print("task_mode_code running on core ");
     print("%d\n", xPortGetCoreID());
 
     BaseType_t q_return;
     QueueHandle_t q = (QueueHandle_t)parameter;
     event_t received_event = {};
-
-    ButtonFSM button1_fsm = ButtonFSM(PIN_BUTTON_MODE);
-    ButtonFSM button2_fsm = ButtonFSM(PIN_BUTTON2_MODE);
-
-    ButtonFSM::button_fsm_state_t button1_state;
-    ButtonFSM::button_fsm_state_t button2_state;
 
     Mode MAIN_MODES_LIST[] = {
         Mode(MODE_MAIN_ART, SERVO_POS_ART, DURATION_MS_ART),
@@ -650,6 +661,7 @@ void task_buttons_code(void *parameter) {
 
     // seed the event handler with our default mode
     curr_mode_t curr_mode = main_modes.get_curr_mode();
+    button_event_t button_info;
     event_t e = {.event_type = EVENT_MODE_CHANGED, {.mode = curr_mode}};
     eh.emit(e);
 
@@ -669,29 +681,45 @@ void task_buttons_code(void *parameter) {
             print("Switch is high, going to sleep\n");
             esp_deep_sleep_start();
         }
-        button1_fsm.advance();
-        button1_state = button1_fsm.get_state();
 
-        button2_fsm.advance();
-        button2_state = button2_fsm.get_state();
-
-        if (button1_state == ButtonFSM::HOLD_TRIGGERED) {  // change modes
-            print("Hold button1\n");
-        }
-        if (button1_state == ButtonFSM::MOMENTARY_TRIGGERED) {  // move the servos
-            main_modes.submode_next();
-            mode_changed = true;
-
-            print("Momentary button1\n");
-        }
-        if (button2_state == ButtonFSM::HOLD_TRIGGERED) {  // change modes
-            print("Hold button2\n");
-        }
-        if (button2_state == ButtonFSM::MOMENTARY_TRIGGERED) {  // move the servos
-            main_modes.next();
-            mode_changed = true;
-
-            print("Momentary button2\n");
+        q_return = xQueueReceive(q, &received_event, 0);  // get any updates
+        if (q_return == pdTRUE) {
+            switch (received_event.event_type) {
+                case EVENT_SPOTIFY_UPDATED:
+                    sp_data = received_event.sp_data;
+                    if (sp_data.art_changed) {
+                        main_modes.set(MODE_MAIN_ART);  // show art on track change
+                        mode_changed = true;
+                    }
+                    break;
+                case EVENT_BUTTON_PRESSED:
+                    button_info = received_event.button_info;
+                    switch (button_info.state) {
+                        case ButtonFSM::HOLD_TRIGGERED:
+                            print("Hold, button %d\n", button_info.id);
+                            break;
+                        case ButtonFSM::MOMENTARY_TRIGGERED:
+                            print("Momentary, button %d\n", button_info.id);
+                            switch (button_info.id) {
+                                case PIN_BUTTON_MODE:
+                                    main_modes.submode_next();
+                                    mode_changed = true;
+                                    break;
+                                case PIN_BUTTON2_MODE:
+                                    main_modes.next();
+                                    mode_changed = true;
+                                    break;
+                            }
+                            break;
+                        default:
+                            print("WARNING: button state %d not recognized\n", button_info.state);
+                            break;
+                    }
+                    break;
+                default:
+                    print("WARNING: task_mode_code received unexpected event type %d!\n", received_event.event_type);
+                    break;
+            }
         }
 
         // check if mode timers have elapsed
@@ -706,20 +734,50 @@ void task_buttons_code(void *parameter) {
             mode_changed = true;
         }
 
-        q_return = xQueueReceive(q, &received_event, 0);  // get the spotify update if there is one
-        if (q_return == pdTRUE && received_event.event_type == EVENT_SPOTIFY_UPDATED) {
-            sp_data = received_event.sp_data;
-            if (sp_data.art_changed) {
-                main_modes.set(MODE_MAIN_ART);  // show art on track change
-                mode_changed = true;
-            }
-        }
-
         // let other tasks know the mode has changed
         if (mode_changed) {
             curr_mode = main_modes.get_curr_mode();
             event_t e = {.event_type = EVENT_MODE_CHANGED, {.mode = curr_mode}};
             eh.emit(e);
+        }
+
+        // Serial.println(uxTaskGetStackHighWaterMark(NULL));
+        vTaskDelay(BUTTON_FSM_CYCLE_TIME_MS / portTICK_RATE_MS);  // added to avoid starving other tasks
+    }
+    vTaskDelete(NULL);
+}
+
+void task_buttons_code(void *parameter) {
+    print("task_buttons_code running on core ");
+    print("%d\n", xPortGetCoreID());
+
+    BaseType_t q_return;
+    QueueHandle_t q = (QueueHandle_t)parameter;
+    event_t received_event = {};
+
+    int nbuttons = 2;
+    ButtonFSM button1 = ButtonFSM(PIN_BUTTON_MODE);
+    ButtonFSM button2 = ButtonFSM(PIN_BUTTON2_MODE);
+
+    ButtonFSM buttons[] = {button1, button2};
+    ButtonFSM::button_fsm_state_t state;
+
+    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
+    if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
+        print("Starting task\n");
+    }
+
+    for (;;) {
+        for (int i = 0; i < nbuttons; i++) {
+            buttons[i].advance();
+            state = buttons[i].get_state();
+
+            if (state == ButtonFSM::HOLD_TRIGGERED || state == ButtonFSM::MOMENTARY_TRIGGERED) {
+                button_event_t button_event = {.id = buttons[i].get_id(), .state = state};
+                event_t e = {.event_type = EVENT_BUTTON_PRESSED,
+                             {.button_info = button_event}};
+                eh.emit(e);
+            }
         }
 
         // Serial.println(uxTaskGetStackHighWaterMark(NULL));

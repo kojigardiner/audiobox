@@ -17,6 +17,11 @@ enum EventType : uint32_t {
     EVENT_ALL = 0xFFFF,
 };
 
+struct button_event_t {
+    int id;
+    ButtonFSM::button_fsm_state_t state;
+};
+
 struct event_t {
     EventType event_type;
 
@@ -24,7 +29,7 @@ struct event_t {
         uint8_t servo_pos;
         Spotify::public_data_t sp_data;
         curr_mode_t mode;
-        ButtonFSM::button_fsm_state_t button_state;
+        button_event_t button_info;
     };
 };
 

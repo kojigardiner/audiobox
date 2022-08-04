@@ -77,7 +77,7 @@ const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 
 #define SERVO_POS_NOISE 30
 #define SERVO_POS_ART 110
-#define SERVO_POS_BARS 165
+#define SERVO_POS_BARS 160
 #define SERVO_POS_GRID 30
 
 #define SERVO_BUTTON_HOLD_DELAY_MS 50

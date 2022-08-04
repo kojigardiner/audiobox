@@ -57,3 +57,8 @@ void ButtonFSM::_read() {
 ButtonFSM::button_fsm_state_t ButtonFSM::get_state() {
     return _state;
 }
+
+// Return the button id
+int ButtonFSM::get_id() {
+    return _button_id;
+}
