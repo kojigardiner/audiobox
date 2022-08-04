@@ -636,10 +636,11 @@ void task_mode_code(void *parameter) {
 
     Mode AUDIO_SUB_MODES_LIST[] = {
         Mode(MODE_AUDIO_NOISE, SERVO_POS_NOISE),
-        Mode(MODE_AUDIO_SNAKE_GRID, SERVO_POS_GRID),
         Mode(MODE_AUDIO_BARS, SERVO_POS_BARS),
         Mode(MODE_AUDIO_CENTER_BARS, SERVO_POS_BARS),
-        Mode(MODE_AUDIO_WATERFALL, SERVO_POS_NOISE)};
+        Mode(MODE_AUDIO_SNAKE_GRID, SERVO_POS_GRID),
+    };
+    // Mode(MODE_AUDIO_WATERFALL, SERVO_POS_NOISE)};
 
     // Mode IMAGE_SUB_MODES_LIST[] = {};
 
@@ -675,9 +676,10 @@ void task_mode_code(void *parameter) {
             eh.emit(e);
 
             xSemaphoreTake(mutex_leds, portMAX_DELAY);
-            FastLED.clear(true);
+
             int servo_pos_delta = abs(curr_mode.sub.get_servo_pos() - SERVO_POS_NOISE);
             vTaskDelay((servo_pos_delta * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
+            FastLED.clear(true);                                                     // in case display got activated
             print("Switch is high, going to sleep\n");
             esp_deep_sleep_start();
         }
