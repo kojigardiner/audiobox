@@ -19,6 +19,7 @@
 #include "ModeSequence.h"
 #include "Spotify.h"
 #include "Utils.h"
+#include "WebSetup.h"
 
 /*** Function Prototypes ***/
 
@@ -108,8 +109,14 @@ void setup() {
 
     // Drop into debug CLI if button is depressed
     pinMode(PIN_BUTTON_MODE, INPUT_PULLUP);
+    pinMode(PIN_BUTTON2_MODE, INPUT_PULLUP);
+
     if (digitalRead(PIN_BUTTON_MODE) == LOW) {
         start_cli();
+    } else if (digitalRead(PIN_BUTTON2_MODE == LOW)) {
+        web_prefs();
+        while (true) {
+        }
     }
 
     print("Loading preferences\n");
