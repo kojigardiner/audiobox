@@ -3,6 +3,7 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+.vscode/settings.json
 .DS_Store
 .gitignore
 LED_16x16_20220727_backup.git
