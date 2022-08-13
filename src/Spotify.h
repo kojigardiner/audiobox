@@ -22,23 +22,23 @@ class Spotify {
 
     // Struct definition
     struct album_art_t {
-        bool loaded;
-        bool changed;
-        char url[CLI_MAX_CHARS];
-        uint16_t width;
-        uint8_t *data;
-        unsigned long num_bytes;
+        bool loaded = false;
+        bool changed = false;
+        char url[CLI_MAX_CHARS] = {0};
+        uint16_t width = 0;
+        uint8_t *data = NULL;
+        unsigned long num_bytes = 0;
     };
 
     struct public_data_t {
-        bool is_active;
-        double track_progress;
+        bool is_active = false;
+        double track_progress = 0.0;
 
-        bool art_loaded;
-        bool art_changed;
-        uint16_t art_width;
-        uint8_t *art_data;
-        unsigned long art_num_bytes;
+        bool art_loaded = false;
+        bool art_changed = false;
+        uint16_t art_width = 0;
+        uint8_t *art_data = NULL;
+        unsigned long art_num_bytes = 0;
     };
 
     // Static methods for initial account setup

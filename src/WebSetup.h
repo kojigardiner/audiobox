@@ -7,6 +7,32 @@
 #include "Constants.h"
 #include "Utils.h"
 
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
+
+String processor(const String& var) {
+    if (var == "CURRENT_SSID") {
+        Preferences prefs;
+        prefs.begin(APP_NAME, false);
+
+        char wifi_ssid[CLI_MAX_CHARS];
+
+        if (!prefs.getString(PREFS_WIFI_SSID_KEY, wifi_ssid, CLI_MAX_CHARS)) {
+            prefs.end();
+            return F("*** not set ***");
+        }
+        prefs.end();
+        return F(wifi_ssid);
+    }
+    return String();
+}
+
+void web_prefs_end() {
+    server.end();
+    WiFi.disconnect();
+    SPIFFS.end();
+}
+
 void web_prefs() {
     // Filessystem setup
     print("Setting up filesystem\n");
@@ -15,69 +41,67 @@ void web_prefs() {
         return;
     }
 
-    // Create AsyncWebServer object on port 80
-    AsyncWebServer server(80);
-
     // Connect to Wi-Fi network with SSID and password
     print("Setting device to AP mode\n");
 
-    // NULL sets an open Access Point
+    // Setup AP with no password
     WiFi.softAP(APP_NAME, NULL);
+    print("IP address: %s\n", WiFi.softAPIP().toString().c_str());
 
-    IPAddress IP = WiFi.softAPIP();
-    print("IP address: %s\n", IP.toString().c_str());
-
-    // Web Server Root URL
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
-        request->send(SPIFFS, "/index.html", "text/html");
+    // Handle exiting
+    server.on("/exit", HTTP_GET, [](AsyncWebServerRequest* request) {
+        web_prefs_end();
     });
 
-    server.serveStatic("/", SPIFFS, "/");
+    // Handle user input of wifi credentials
+    server.on("/wifi-manual", HTTP_POST, [](AsyncWebServerRequest* request) {
+        int n_params = request->params();
 
-    server.on("/", HTTP_POST, [](AsyncWebServerRequest* request) {
-        int params = request->params();
-        for (int i = 0; i < params; i++) {
+        char ssid[CLI_MAX_CHARS];
+        char pass[CLI_MAX_CHARS];
+
+        for (int i = 0; i < n_params; i++) {
             AsyncWebParameter* p = request->getParam(i);
             if (p->isPost()) {
-                // // HTTP POST ssid value
-                // if (p->name() == PARAM_INPUT_1) {
-                //     ssid = p->value().c_str();
-                //     Serial.print("SSID set to: ");
-                //     Serial.println(ssid);
-                //     // Write file to save value
-                //     writeFile(SPIFFS, ssidPath, ssid.c_str());
-                // }
-                // // HTTP POST pass value
-                // if (p->name() == PARAM_INPUT_2) {
-                //     pass = p->value().c_str();
-                //     Serial.print("Password set to: ");
-                //     Serial.println(pass);
-                //     // Write file to save value
-                //     writeFile(SPIFFS, passPath, pass.c_str());
-                // }
-                // // HTTP POST ip value
-                // if (p->name() == PARAM_INPUT_3) {
-                //     ip = p->value().c_str();
-                //     Serial.print("IP Address set to: ");
-                //     Serial.println(ip);
-                //     // Write file to save value
-                //     writeFile(SPIFFS, ipPath, ip.c_str());
-                // }
-                // // HTTP POST gateway value
-                // if (p->name() == PARAM_INPUT_4) {
-                //     gateway = p->value().c_str();
-                //     Serial.print("Gateway set to: ");
-                //     Serial.println(gateway);
-                //     // Write file to save value
-                //     writeFile(SPIFFS, gatewayPath, gateway.c_str());
-                // }
-                print("POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
+                if (p->name() == "ssid") {
+                    strncpy(ssid, p->value().c_str(), CLI_MAX_CHARS);
+                }
+                if (p->name() == "pass") {
+                    strncpy(pass, p->value().c_str(), CLI_MAX_CHARS);
+                }
             }
         }
-        request->send(200, "text/plain", "Done. ESP will restart.");
-        delay(3000);
-        ESP.restart();
+
+        // check that we got valid non-zero length entries
+        if (strlen(ssid) && strlen(pass)) {
+            Preferences prefs;
+            prefs.begin(APP_NAME, false);
+            set_pref(&prefs, PREFS_WIFI_SSID_KEY, ssid);
+            set_pref(&prefs, PREFS_WIFI_PASS_KEY, pass);
+            prefs.end();
+        }
+
+        // Send user back to wifi page
+        request->send(SPIFFS, "/wifi.html", String(), false, processor);
     });
+
+    // Handle all other static page requests
+    server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html").setTemplateProcessor(processor);
+
+    server.onNotFound([](AsyncWebServerRequest* request) {
+        request->send(404);
+    });
+
+    // server.on("", HTTP_ANY, [](AsyncWebServerRequest* request) {
+    //     print("Request: %s\n", request->url().c_str());
+    //     request->send(SPIFFS, "/index.html", "text/html");
+    //     // request->send(SPIFFS, "/index.htm", String(), false, processor);
+    // });
+
+    // server.on("/style.css", HTTP_ANY, [](AsyncWebServerRequest* request) {
+    //     request->send(SPIFFS, "/style.css", "text/css");
+    // });
+
     server.begin();
 }
 

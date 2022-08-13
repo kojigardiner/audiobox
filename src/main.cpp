@@ -360,11 +360,10 @@ void task_display_code(void *parameter) {
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = (1000.0 / FPS) / portTICK_RATE_MS;
 
-    ButtonFSM::button_fsm_state_t button_state;
     Spotify::public_data_t sp_data;
     BaseType_t q_return;
     double percent_complete = 0;
-    int counter = 0;
+    // int counter = 0;
 
     curr_mode_t curr_mode;
 
@@ -373,7 +372,7 @@ void task_display_code(void *parameter) {
 
     QueueHandle_t q = (QueueHandle_t)parameter;  // queue for events
     event_t received_event = {};                 // event to be received
-    event_t e = {};
+    // event_t e = {};
 
     q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
     if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
@@ -449,7 +448,7 @@ void task_display_code(void *parameter) {
             }
             case MODE_MAIN_IMAGE:
                 xSemaphoreTake(mutex_leds, portMAX_DELAY);
-                char rcvd[CLI_MAX_CHARS];
+                // char rcvd[CLI_MAX_CHARS];
                 const char *filepath = "/image.jpg";
 
                 // print("Enter url to jpg image: \n");
@@ -478,8 +477,8 @@ void task_audio_code(void *parameter) {
     print("task_audio_code running on core ");
     print("%d\n", xPortGetCoreID());
 
-    TickType_t xLastWakeTime;
-    const TickType_t xFrequency = ((FFT_SAMPLES / 2.0) / I2S_SAMPLE_RATE * 1000) / portTICK_RATE_MS;
+    // TickType_t xLastWakeTime;
+    // const TickType_t xFrequency = ((FFT_SAMPLES / 2.0) / I2S_SAMPLE_RATE * 1000) / portTICK_RATE_MS;
 
     AudioProcessor ap = AudioProcessor(false, false, true, true);
 
@@ -507,7 +506,7 @@ void task_audio_code(void *parameter) {
     }
 
     // Initialise the xLastWakeTime variable with the current time.
-    xLastWakeTime = xTaskGetTickCount();
+    // xLastWakeTime = xTaskGetTickCount();
 
     int last_audio_mode = -1;
     for (;;) {
