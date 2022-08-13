@@ -51,6 +51,8 @@ void web_prefs() {
     // Handle exiting
     server.on("/exit", HTTP_GET, [](AsyncWebServerRequest* request) {
         web_prefs_end();
+        print("Restarting...");
+        ESP.restart();
     });
 
     // Handle user input of wifi credentials

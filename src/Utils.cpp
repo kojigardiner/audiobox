@@ -31,7 +31,6 @@ bool check_prefs() {
 // Connect to wifi network
 bool connect_wifi() {
     unsigned long start_ms;
-    bool ret = false;
 
     if (WiFi.status() != WL_CONNECTED) {
         // get wifi network info from prefs
