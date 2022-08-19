@@ -125,8 +125,13 @@ void setup() {
     if (!connect_wifi()) {
         print("Wifi could not connect! Power off and power on while holding down the main button to configure preferences.\n");
         web_prefs(true);  // start in ap mode
-    } else {
-        web_prefs(false);  // start in non-ap mode
+    }
+
+    // hang so we can debug
+    if (digitalRead(PIN_BUTTON2_MODE) == LOW) {
+        web_prefs(false);
+        while (true) {
+        }
     }
 
     // test_modes();

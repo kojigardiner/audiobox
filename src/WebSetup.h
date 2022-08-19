@@ -4,6 +4,7 @@
 #include <ESPAsyncWebServer.h>
 #include <SPIFFS.h>
 
+#include "CLI.h"
 #include "Constants.h"
 #include "Utils.h"
 
@@ -126,6 +127,33 @@ void handle_spotify_client(AsyncWebServerRequest* request) {
     // Send user back to spotify page
     request->send(SPIFFS, "/spotify.html", String(), false, processor);
 }
+void handle_spotify_account(AsyncWebServerRequest* request) {
+    char auth_url[HTTP_MAX_CHARS];
+    get_spotify_auth_url(auth_url);
+
+    print("%s\n", auth_url);
+    // Send user to the authorization url
+    AsyncWebServerResponse* response = request->beginResponse(303);  // HTTP SEE OTHER, forces browser to GET
+    response->addHeader("Location", auth_url);
+    request->send(response);
+}
+
+void handle_spotify_auth(AsyncWebServerRequest* request) {
+    int n_params = request->params();
+    char refresh_token[CLI_MAX_CHARS];
+
+    for (int i = 0; i < n_params; i++) {
+        AsyncWebParameter* p = request->getParam(i);
+
+        if (p->name() == "code") {
+            get_spotify_refresh_token(p->value().c_str(), refresh_token);
+            save_spotify_refresh_token(refresh_token);
+        }
+    }
+
+    // Send user back to spotify page
+    request->send(SPIFFS, "/spotify.html", String(), false, processor);
+}
 
 void web_prefs(bool ap_mode) {
     // Filessystem setup
@@ -151,6 +179,8 @@ void web_prefs(bool ap_mode) {
     server.on("/wifi-manual", HTTP_POST, handle_wifi_manual);
     server.on("/wifi-test", HTTP_GET, handle_wifi_test);
     server.on("/spotify-client", HTTP_POST, handle_spotify_client);
+    server.on("/spotify-account", HTTP_GET, handle_spotify_account);
+    server.on("/spotify-auth", HTTP_GET, handle_spotify_auth);
 
     // Handle all other static page requests
     server.serveStatic("/", SPIFFS, "/")

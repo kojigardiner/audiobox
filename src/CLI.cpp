@@ -131,8 +131,7 @@ void set_spotify_client_id() {
     prefs.end();
 }
 
-void set_spotify_account() {
-    char refresh_token[CLI_MAX_CHARS];
+bool get_spotify_auth_url(char *auth_url) {
     char client_id[CLI_MAX_CHARS];
     char auth_b64[CLI_MAX_CHARS];
 
@@ -143,20 +142,66 @@ void set_spotify_account() {
         !prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64, CLI_MAX_CHARS)) {
         print("Set Spotify client ID first!\n");
         prefs.end();
-        return;
+        return false;
     }
 
     if (!connect_wifi()) {
         prefs.end();
-        return;
+        return false;
     }
 
-    if (Spotify::request_user_auth(client_id, auth_b64, refresh_token)) {
-        set_pref(&prefs, PREFS_SPOTIFY_REFRESH_TOKEN_KEY, refresh_token);
+    prefs.end();
+    return Spotify::request_user_auth(client_id, auth_b64, auth_url);
+}
+
+bool get_spotify_refresh_token(const char *auth_code, char *refresh_token) {
+    char auth_b64[CLI_MAX_CHARS];
+
+    Preferences prefs;
+    prefs.begin(APP_NAME, false);
+
+    if (!prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64, CLI_MAX_CHARS)) {
+        print("Set Spotify client ID first!\n");
+        prefs.end();
+        return false;
+    }
+
+    if (!connect_wifi()) {
+        prefs.end();
+        return false;
+    }
+
+    prefs.end();
+    return Spotify::get_refresh_token(auth_b64, auth_code, refresh_token);
+}
+
+void save_spotify_refresh_token(char *refresh_token) {
+    Preferences prefs;
+    prefs.begin(APP_NAME, false);
+    set_pref(&prefs, PREFS_SPOTIFY_REFRESH_TOKEN_KEY, refresh_token);
+    prefs.end();
+}
+
+void set_spotify_account() {
+    char refresh_token[CLI_MAX_CHARS];
+    char auth_url[HTTP_MAX_CHARS];
+    char auth_code[CLI_MAX_CHARS];
+
+    if (get_spotify_auth_url(auth_url)) {
+        print("\nLaunch the following URL in your browser to authorize access: ");
+        print("%s\n", auth_url);
+        print("\nAfter granting access, you will be redirected to a webpage.\n");
+
+        // get the authorization code from the user
+        print("\nCopy and paste the characters after \"code: \" on the webpage. Do not include the quotation (\") marks: ");
+        get_input(auth_code);
+
+        if (get_spotify_refresh_token(auth_code, refresh_token)) {
+            save_spotify_refresh_token(refresh_token);
+        }
     } else {
         print("Request user authorization failed\n");
     }
-    prefs.end();
 }
 
 void clear_prefs() {

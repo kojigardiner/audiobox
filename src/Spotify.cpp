@@ -11,14 +11,9 @@ Spotify::Spotify(const char *client_id, const char *auth_b64, const char *refres
     _reset_variables();
 }
 
-bool Spotify::get_refresh_token(const char *auth_b64, char *refresh_token) {
+bool Spotify::get_refresh_token(const char *auth_b64, const char *auth_code, char *refresh_token) {
     bool ret = false;
     HTTPClient http;
-
-    // get the authorization code from the user
-    char auth_code[CLI_MAX_CHARS];
-    print("\nCopy and paste the characters after \"code: \" on the webpage. Do not include the quotation (\") marks: ");
-    get_input(auth_code);
 
     http.begin(SPOTIFY_TOKEN_URL);
 
@@ -55,9 +50,10 @@ bool Spotify::get_refresh_token(const char *auth_b64, char *refresh_token) {
     return ret;
 }
 
-// CLI flow for requesting user to grant access to their account
-// This should only be run once to link a user's account to the box, and will return a pointer to the refresh token
-bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, char *refresh_token) {
+// Flow for requesting user to grant access to their account
+// This should only be run once to link a user's account to the box
+// It will return an authorization url that the user must visit
+bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, char *auth_url) {
     bool ret;
     HTTPClient http;
     char url[HTTP_MAX_CHARS];
@@ -79,12 +75,8 @@ bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, cha
     // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
     switch (httpCode) {
         case HTTP_CODE_SEE_OTHER: {
-            print("\nLaunch the following URL in your browser to authorize access: ");
-            print("%s\n", payload.c_str());
-            print("\nAfter granting access, you will be redirected to a webpage.\n");
-
-            ret = get_refresh_token(auth_b64, refresh_token);
-
+            strncpy(auth_url, payload.c_str(), HTTP_MAX_CHARS);
+            ret = true;
             break;
         }
         default:

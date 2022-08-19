@@ -15,6 +15,12 @@ const char* const PREFS_SPOTIFY_CLIENT_SECRET_KEY = "sp_cli_sec";
 const char* const PREFS_SPOTIFY_AUTH_B64_KEY = "sp_auth_b64";
 const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
 
+const uint8_t WIFI_LOCAL_IP[4] = {192, 168, 3, 147};
+const uint8_t WIFI_GATEWAY[4] = {192, 168, 1, 1};
+const uint8_t WIFI_SUBNET[4] = {255, 255, 0, 0};
+const uint8_t WIFI_DNS1[4] = {8, 8, 8, 8};
+const uint8_t WIFI_DNS2[4] = {8, 8, 4, 4};
+
 #define WIFI_TIMEOUT_MS 10000  // how long to wait on wifi connect before bailing out
 
 #define MAX_EVENTHANDLER_TASKS 32

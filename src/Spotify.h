@@ -9,7 +9,8 @@
 
 const char SPOTIFY_AUTH_URL[] = "https://accounts.spotify.com/authorize";
 const char SPOTIFY_TOKEN_URL[] = "https://accounts.spotify.com/api/token";
-const char SPOTIFY_REDIRECT_URI[] = "http%3A%2F%2Fhttpbin.org%2Fanything";
+// const char SPOTIFY_REDIRECT_URI[] = "http%3A%2F%2Fhttpbin.org%2Fanything";
+const char SPOTIFY_REDIRECT_URI[] = "http%3A%2F%2F192.168.3.147%2Fspotify-auth";
 const char SPOTIFY_SCOPE[] = "user-read-playback-state+user-read-playback-position";  //+user-modify-playback-state"
 const char SPOTIFY_PLAYER_URL[] = "https://api.spotify.com/v1/me/player";
 const char SPOTIFY_FEATURES_URL[] = "https://api.spotify.com/v1/audio-features";
@@ -44,8 +45,8 @@ class Spotify {
     // Static methods for initial account setup
 
     // CLI flow for requesting user authorization to access their account
-    static bool request_user_auth(const char *client_id, const char *auth_b64, char *refresh_token);
-    static bool get_refresh_token(const char *auth_b64, char *refresh_token);
+    static bool request_user_auth(const char *client_id, const char *auth_b64, char *auth_url);
+    static bool get_refresh_token(const char *auth_b64, const char *auth_code, char *refresh_token);
 
     // Methods
 

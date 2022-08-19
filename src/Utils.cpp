@@ -54,7 +54,8 @@ bool connect_wifi(bool async) {
         // This allows connect_wifi() to be called when in soft AP mode
         if (WiFi.getMode() == WIFI_MODE_NULL) WiFi.mode(WIFI_STA);
 
-        WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
+        // WiFi.config(IPAddress(WIFI_LOCAL_IP), IPAddress(WIFI_GATEWAY), IPAddress(WIFI_SUBNET), IPAddress(WIFI_DNS1), IPAddress(WIFI_DNS2));
+        WiFi.config(IPADDR_NONE, IPADDR_NONE, IPADDR_NONE, IPADDR_NONE);
         WiFi.setHostname(APP_NAME);
         WiFi.begin(wifi_ssid, wifi_pass);
 
@@ -150,13 +151,13 @@ int get_input(char *rcvd) {
 }
 
 void print(const char *format, ...) {
-    static char buffer[CLI_MAX_CHARS];
+    static char buffer[HTTP_MAX_CHARS];
 
     va_list args;
     va_start(args, format);
 
-    if (strlen(format) > (CLI_MAX_CHARS - 2)) Serial.println("WARNING! Printed text will be truncated!");
-    int ret = vsnprintf(buffer, CLI_MAX_CHARS, format, args);
+    if (strlen(format) > (HTTP_MAX_CHARS - 2)) Serial.println("WARNING! Printed text will be truncated!");
+    int ret = vsnprintf(buffer, HTTP_MAX_CHARS, format, args);
     if (ret < 0) Serial.println("WARNING! Print encoding failed!");
     Serial.print(buffer);
 
