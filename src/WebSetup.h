@@ -9,6 +9,7 @@
 
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
+AsyncEventSource web_events("/events");
 
 // Template processing
 String processor(const String& var) {
@@ -28,7 +29,7 @@ String processor(const String& var) {
         if (WiFi.status() == WL_CONNECTED)
             return F("Connected");
         else
-            return F("Not connected");
+            return F("Not Connected");
     }
 
     return String();
@@ -126,7 +127,7 @@ void handle_spotify_client(AsyncWebServerRequest* request) {
     request->send(SPIFFS, "/spotify.html", String(), false, processor);
 }
 
-void web_prefs() {
+void web_prefs(bool ap_mode) {
     // Filessystem setup
     print("Setting up filesystem\n");
     if (!SPIFFS.begin(true)) {
@@ -134,14 +135,17 @@ void web_prefs() {
         return;
     }
 
-    // Connect to Wi-Fi network with SSID and password
-    print("Setting device to AP mode\n");
+    connect_wifi();  // kick off a wifi connection with the existing config if possible
 
-    WiFi.mode(WIFI_AP_STA);  // set to ap/sta mode so that we can test WiFi STA access
+    if (ap_mode) {
+        // Connect to Wi-Fi network with SSID and password
+        print("Setting up AP mode\n");
+        WiFi.mode(WIFI_AP_STA);  // set to ap/sta mode so that we can test WiFi STA access
 
-    // Setup AP with no password
-    WiFi.softAP(APP_NAME, NULL);
-    print("IP address: %s\n", WiFi.softAPIP().toString().c_str());
+        // Setup AP with no password
+        WiFi.softAP(APP_NAME, NULL);
+        print("AP IP address: %s\n", WiFi.softAPIP().toString().c_str());
+    }
 
     server.on("/exit", HTTP_GET, handle_exit);
     server.on("/wifi-manual", HTTP_POST, handle_wifi_manual);
@@ -156,6 +160,17 @@ void web_prefs() {
     server.onNotFound([](AsyncWebServerRequest* request) {
         request->send(404);
     });
+
+    // Handle events
+    web_events.onConnect([](AsyncEventSourceClient* client) {
+        if (client->lastId()) {
+            print("Client reconnected! Last message ID that it got is: %u\n", client->lastId());
+        }
+        // send event with message "hello!", id current millis
+        // and set reconnect delay to 1 second
+        client->send("Hello from the server!", NULL, millis(), 1000);
+    });
+    server.addHandler(&web_events);
 
     server.begin();
 }

@@ -113,10 +113,6 @@ void setup() {
 
     if (digitalRead(PIN_BUTTON_MODE) == LOW) {
         start_cli();
-    } else if (digitalRead(PIN_BUTTON2_MODE) == LOW) {
-        web_prefs();
-        while (true) {
-        }
     }
 
     print("Loading preferences\n");
@@ -128,6 +124,9 @@ void setup() {
     // Wifi setup
     if (!connect_wifi()) {
         print("Wifi could not connect! Power off and power on while holding down the main button to configure preferences.\n");
+        web_prefs(true);  // start in ap mode
+    } else {
+        web_prefs(false);  // start in non-ap mode
     }
 
     // test_modes();
@@ -622,6 +621,7 @@ void task_spotify_code(void *parameter) {
             curr_mode = received_event.mode;
         }
         if ((WiFi.status() == WL_CONNECTED)) {
+            web_events.send("Connected", "wifi", millis());
             if (curr_mode.main.id() != MODE_MAIN_IMAGE) {  // only run spotify loop if we are not in image download mode; otherwise the https code will
                 sp.update();
                 Spotify::public_data_t sp_data = sp.get_data();
@@ -632,6 +632,7 @@ void task_spotify_code(void *parameter) {
                 eh.emit(e);  // set timeout to zero so loop will continue until display is updated
             }
         } else {
+            web_events.send("Not Connected", "wifi", millis());
             print("Error: WiFi not connected! status = %d\n", WiFi.status());
         }
         vTaskDelay(SPOTIFY_CYCLE_TIME_MS / portTICK_RATE_MS);
