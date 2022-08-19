@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <link rel="stylesheet" href="style.css">
     <title>Audiobox Preferences</title>
+    <script src="wifi-check.js" defer></script>
 </head>
 
 <body>
@@ -13,11 +14,15 @@
         <div class="title">Preferences Menu</div>
         <a class="forward" href="#"></a>
     </div>
+    <div class="status">
+        <div class="ssid-name">WiFi: %CURRENT_SSID%</div>
+        <div class="ssid-status">%WIFI_STATUS%</div>
+    </div>
     <div class="content">
         <a class="button button-wifi" href="wifi.html">Setup WiFi</a>
-        <a class="button button-spotify" href="spotify.html">Setup Spotify</a>
+        <a class="button button-spotify needs-wifi" href="spotify.html">Setup Spotify</a>
         <a class="button button-reset" href="#">Reset All</a>
-        <a class="button button-exit" href="exit">Exit</a>
+        <a class="button button-exit" href="exit">Reboot</a>
     </div>
     <div class="footer">
         <div class="text">Copyright © Koji Gardiner 2022</div>

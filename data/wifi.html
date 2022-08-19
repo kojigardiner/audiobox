@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <link rel="stylesheet" href="style.css">
     <title>Audiobox Preferences - WiFi</title>
+    <script src="wifi-check.js" defer></script>
 </head>
 
 <body>
@@ -13,11 +14,11 @@
         <div class="title">WiFi Menu</div>
         <a class="forward invisible" href="#">&lt; Preferences</a>
     </div>
+    <div class="status">
+        <div class="ssid-name">WiFi: %CURRENT_SSID%</div>
+        <div class="ssid-status">%WIFI_STATUS%</div>
+    </div>
     <div class="content">
-        <div class="status">
-            <div class="ssid-name">SSID: %CURRENT_SSID%</div>
-            <div class="ssid-status">%WIFI_STATUS%</div>
-        </div>
         <a class="button button-test-wifi" href="wifi-test">Test Connection</a>
         <!-- <a class="button button-wifi-scan" href="wifi-scan.html">Setup new SSID (scan)</a> -->
         <a class="button button-wifi-manual" href="wifi-manual.html">Setup New SSID</a>
@@ -26,18 +27,5 @@
         <div class="text">Copyright © Koji Gardiner 2022</div>
     </div>
 </body>
-
-<script>
-    // Update status color
-    ssidStatus = document.querySelector(".ssid-status");
-    switch (ssidStatus.textContent.toLowerCase()) {
-        case "connected":
-            ssidStatus.style.backgroundColor = "rgb(98, 199, 85)";
-            break;
-        default:
-            ssidStatus.style.backgroundColor = "rgb(234, 88, 76)";
-            break;
-    }
-</script>
 
 </html>

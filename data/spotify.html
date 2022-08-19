@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <link rel="stylesheet" href="style.css">
     <title>Audiobox Preferences - Spotify</title>
+    <script src="wifi-check.js" defer></script>
 </head>
 
 <body>
@@ -13,8 +14,12 @@
         <div class="title">Spotify Menu</div>
         <a class="forward invisible" href="#">&lt; Preferences</a>
     </div>
+    <div class="status">
+        <div class="ssid-name">WiFi: %CURRENT_SSID%</div>
+        <div class="ssid-status">%WIFI_STATUS%</div>
+    </div>
     <div class="content">
-        <a class="button button-spotify-account" href="spotify-account.html">Setup Spotify User Account</a>
+        <a class="button button-spotify-account needs-wifi" href="spotify-account.html">Setup Spotify User Account</a>
         <a class="button button-spotify-client" href="spotify-client.html">Setup Spotify Developer ID</a>
 
     </div>

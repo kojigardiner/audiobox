@@ -8,6 +8,7 @@ body {
     color: #f7ebec;
     display: flex;
     flex-direction: column;
+    gap: 10px;
 }
 
 .header {
@@ -32,6 +33,7 @@ body {
 
 .header .title {
     justify-self: center;
+    margin-bottom: 10px;
 }
 
 .content,
@@ -39,7 +41,6 @@ form {
     display: flex;
     flex-direction: column;
     justify-content: space-around;
-    margin: 20px 0px;
     gap: 10px;
 }
 
@@ -47,17 +48,21 @@ form {
     align-self: center;
 }
 
-.content .status {
+.status {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    padding: 10px;
+    border: 1px gray solid;
+    border-radius: 100px;
 }
 
 .ssid-name,
 .ssid-status {
+    font-size: 12px;
     font-weight: light;
     background-color: gray;
-    padding: 10px;
+    padding: 4px;
     border-radius: 100px;
 }
 
