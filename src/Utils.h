@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
-bool connect_wifi();
+bool connect_wifi(bool async = false);
 bool check_prefs();
 int get_input(char *rcvd);
 void set_pref(Preferences *prefs, const char *key, const char *value = NULL);

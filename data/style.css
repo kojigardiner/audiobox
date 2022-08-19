@@ -18,12 +18,20 @@ body {
     align-items: center;
 }
 
+.invisible {
+    visibility: hidden;
+}
+
 .header .forward,
 .header .back {
     font-weight: light;
     font-size: 20px;
     text-decoration: none;
     color: #f7ebec;
+}
+
+.header .title {
+    justify-self: center;
 }
 
 .content,
@@ -35,9 +43,25 @@ form.wifi {
     gap: 10px;
 }
 
-.content .text,
-form.wifi {
+.content .text {
     align-self: center;
+}
+
+.content .status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.ssid-name {
+    font-weight: lighter;
+}
+
+.ssid-status {
+    font-weight: light;
+    background-color: gray;
+    padding: 10px;
+    border-radius: 100px;
 }
 
 .button,

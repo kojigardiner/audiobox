@@ -113,7 +113,7 @@ void setup() {
 
     if (digitalRead(PIN_BUTTON_MODE) == LOW) {
         start_cli();
-    } else if (digitalRead(PIN_BUTTON2_MODE == LOW)) {
+    } else if (digitalRead(PIN_BUTTON2_MODE) == LOW) {
         web_prefs();
         while (true) {
         }

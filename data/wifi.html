@@ -9,19 +9,35 @@
 
 <body>
     <div class="header">
-        <a class="back" href="index.html">&lt;</a>
+        <a class="back" href="index.html">&lt; Preferences</a>
         <div class="title">WiFi Menu</div>
-        <a class="forward" href="#"></a>
+        <a class="forward invisible" href="#">&lt; Preferences</a>
     </div>
     <div class="content">
-        <div class="text">Current wifi SSID: %CURRENT_SSID%</div>
-        <a class="button button-wifi-scan" href="wifi-scan.html">Setup new wifi SSID (scan)</a>
-        <a class="button button-wifi-manual" href="wifi-manual.html">Setup new wifi SSID (manual)</a>
-        <a class="button button-test-wifi" href="wifi-test.html">Test wifi connection</a>
+        <div class="status">
+            <div class="ssid-name">SSID: %CURRENT_SSID%</div>
+            <div class="ssid-status">%WIFI_STATUS%</div>
+        </div>
+        <a class="button button-test-wifi" href="wifi-test">Test connection</a>
+        <!-- <a class="button button-wifi-scan" href="wifi-scan.html">Setup new SSID (scan)</a> -->
+        <a class="button button-wifi-manual" href="wifi-manual.html">Setup new SSID (manual)</a>
     </div>
     <div class="footer">
         <div class="text">Copyright © Koji Gardiner 2022</div>
     </div>
 </body>
+
+<script>
+    // Update status color
+    ssidStatus = document.querySelector(".ssid-status");
+    switch (ssidStatus.textContent.toLowerCase()) {
+        case "connected":
+            ssidStatus.style.backgroundColor = "rgb(98, 199, 85)";
+            break;
+        default:
+            ssidStatus.style.backgroundColor = "rgb(234, 88, 76)";
+            break;
+    }
+</script>
 
 </html>

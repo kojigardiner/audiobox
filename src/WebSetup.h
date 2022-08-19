@@ -10,6 +10,7 @@
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
 
+// Template processing
 String processor(const String& var) {
     if (var == "CURRENT_SSID") {
         Preferences prefs;
@@ -23,14 +24,69 @@ String processor(const String& var) {
         }
         prefs.end();
         return F(wifi_ssid);
+    } else if (var == "WIFI_STATUS") {
+        if (WiFi.status() == WL_CONNECTED)
+            return F("Connected");
+        else
+            return F("Not connected");
     }
+
     return String();
 }
 
+// Clean up on exit
 void web_prefs_end() {
     server.end();
     WiFi.disconnect();
     SPIFFS.end();
+}
+
+void handle_wifi_test(AsyncWebServerRequest* request) {
+    connect_wifi(true);
+
+    // reload the page so we can see the status update
+    request->send(SPIFFS, "/wifi.html", String(), false, processor);
+}
+
+// Handler for /exit
+void handle_exit(AsyncWebServerRequest* request) {
+    web_prefs_end();
+    print("Restarting...");
+    ESP.restart();
+}
+
+// Handler for /wifi_manual
+void handle_wifi_manual(AsyncWebServerRequest* request) {
+    int n_params = request->params();
+
+    char ssid[CLI_MAX_CHARS];
+    char pass[CLI_MAX_CHARS];
+
+    for (int i = 0; i < n_params; i++) {
+        AsyncWebParameter* p = request->getParam(i);
+        if (p->isPost()) {
+            if (p->name() == "ssid") {
+                strncpy(ssid, p->value().c_str(), CLI_MAX_CHARS);
+            }
+            if (p->name() == "pass") {
+                strncpy(pass, p->value().c_str(), CLI_MAX_CHARS);
+            }
+        }
+    }
+
+    // check that we got valid non-zero length entries
+    if (strlen(ssid) && strlen(pass)) {
+        WiFi.disconnect();  // disconnect in case we were previously connected to another network
+
+        Preferences prefs;
+        prefs.begin(APP_NAME, false);
+        set_pref(&prefs, PREFS_WIFI_SSID_KEY, ssid);
+        set_pref(&prefs, PREFS_WIFI_PASS_KEY, pass);
+        prefs.end();
+    }
+
+    // Send user back to wifi page
+    request->send(SPIFFS, "/wifi.html", String(), false, processor);
 }
 
 void web_prefs() {
@@ -44,65 +100,24 @@ void web_prefs() {
     // Connect to Wi-Fi network with SSID and password
     print("Setting device to AP mode\n");
 
+    WiFi.mode(WIFI_AP_STA);  // set to ap/sta mode so that we can test WiFi STA access
+
     // Setup AP with no password
     WiFi.softAP(APP_NAME, NULL);
     print("IP address: %s\n", WiFi.softAPIP().toString().c_str());
 
-    // Handle exiting
-    server.on("/exit", HTTP_GET, [](AsyncWebServerRequest* request) {
-        web_prefs_end();
-        print("Restarting...");
-        ESP.restart();
-    });
-
-    // Handle user input of wifi credentials
-    server.on("/wifi-manual", HTTP_POST, [](AsyncWebServerRequest* request) {
-        int n_params = request->params();
-
-        char ssid[CLI_MAX_CHARS];
-        char pass[CLI_MAX_CHARS];
-
-        for (int i = 0; i < n_params; i++) {
-            AsyncWebParameter* p = request->getParam(i);
-            if (p->isPost()) {
-                if (p->name() == "ssid") {
-                    strncpy(ssid, p->value().c_str(), CLI_MAX_CHARS);
-                }
-                if (p->name() == "pass") {
-                    strncpy(pass, p->value().c_str(), CLI_MAX_CHARS);
-                }
-            }
-        }
-
-        // check that we got valid non-zero length entries
-        if (strlen(ssid) && strlen(pass)) {
-            Preferences prefs;
-            prefs.begin(APP_NAME, false);
-            set_pref(&prefs, PREFS_WIFI_SSID_KEY, ssid);
-            set_pref(&prefs, PREFS_WIFI_PASS_KEY, pass);
-            prefs.end();
-        }
-
-        // Send user back to wifi page
-        request->send(SPIFFS, "/wifi.html", String(), false, processor);
-    });
+    server.on("/exit", HTTP_GET, handle_exit);
+    server.on("/wifi-manual", HTTP_POST, handle_wifi_manual);
+    server.on("/wifi-test", HTTP_GET, handle_wifi_test);
 
     // Handle all other static page requests
-    server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html").setTemplateProcessor(processor);
+    server.serveStatic("/", SPIFFS, "/")
+        .setDefaultFile("index.html")
+        .setTemplateProcessor(processor);
 
     server.onNotFound([](AsyncWebServerRequest* request) {
         request->send(404);
     });
-
-    // server.on("", HTTP_ANY, [](AsyncWebServerRequest* request) {
-    //     print("Request: %s\n", request->url().c_str());
-    //     request->send(SPIFFS, "/index.html", "text/html");
-    //     // request->send(SPIFFS, "/index.htm", String(), false, processor);
-    // });
-
-    // server.on("/style.css", HTTP_ANY, [](AsyncWebServerRequest* request) {
-    //     request->send(SPIFFS, "/style.css", "text/css");
-    // });
 
     server.begin();
 }

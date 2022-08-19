@@ -29,7 +29,9 @@ bool check_prefs() {
 }
 
 // Connect to wifi network
-bool connect_wifi() {
+// Passing an argument of async = true will cause the function to return immediately and not wait
+// for connection to be established
+bool connect_wifi(bool async) {
     unsigned long start_ms;
 
     if (WiFi.status() != WL_CONNECTED) {
@@ -47,30 +49,38 @@ bool connect_wifi() {
 
         // WiFi Setup
         print("Wifi connecting to %s", wifi_ssid);
-        WiFi.mode(WIFI_STA);
+
+        // Only set a new mode if we are not already operating
+        // This allows connect_wifi() to be called when in soft AP mode
+        if (WiFi.getMode() == WIFI_MODE_NULL) WiFi.mode(WIFI_STA);
+
         WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
         WiFi.setHostname(APP_NAME);
         WiFi.begin(wifi_ssid, wifi_pass);
 
         bool led_state = HIGH;
-        start_ms = millis();
-        while (WiFi.status() != WL_CONNECTED) {
-            digitalWrite(PIN_BUTTON_LED, led_state);  // blink the LED
-            led_state = !led_state;
-            Serial.print(".");
-            delay(500);
-            if (millis() - start_ms > WIFI_TIMEOUT_MS) {
-                print("connection timed out\n");
-                return false;
+        if (!async) {
+            start_ms = millis();
+            while (WiFi.status() != WL_CONNECTED) {
+                digitalWrite(PIN_BUTTON_LED, led_state);  // blink the LED
+                led_state = !led_state;
+                Serial.print(".");
+                delay(500);
+                if (millis() - start_ms > WIFI_TIMEOUT_MS) {
+                    print("connection timed out\n");
+                    return false;
+                }
             }
         }
     }
 
-    print("connected\n");
-    print("IP: %s\n", WiFi.localIP().toString().c_str());
-    print("RSSI: %d\n", WiFi.RSSI());
-
-    return true;
+    if (WiFi.status() == WL_CONNECTED) {
+        print("connected\n");
+        print("IP: %s\n", WiFi.localIP().toString().c_str());
+        print("RSSI: %d\n", WiFi.RSSI());
+        return true;
+    }
+    return false;
 }
 
 // Set a value in preference. Pass an optional "value" key to set that value, otherwise prompt the user
@@ -82,12 +92,12 @@ void set_pref(Preferences *prefs, const char *key, const char *value) {
         print("Enter new value for %s: ", key);
 
         get_input(rcvd);
-        print("Storing: %s\n", rcvd);
+        print("Storing (length %d): %s\n", strlen(rcvd), rcvd);
         stored = prefs->putString(key, rcvd);
     } else {
         print("For key: %s\n", key);
 
-        print("Storing: %s\n", value);
+        print("Storing (length %d): %s\n", strlen(value), value);
         stored = prefs->putString(key, value);
     }
     delay(500);
