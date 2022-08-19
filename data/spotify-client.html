@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+    <title>Audiobox Preferences - Spotify (Client ID)</title>
+</head>
+
+<body>
+    <div class="header">
+        <a class="back" href="spotify.html">&lt; Spotify</a>
+        <div class="title">Spotify (Client ID)</div>
+        <a class="forward invisible" href="#">&lt; WiFi</a>
+    </div>
+    <div class="content">
+        <div class="intro">Go to the <a class="link" href="https://developer.spotify.com/dashboard/">Spotify Developer
+                Dashboard</a> to find the
+            app
+            client credentials.</div>
+        <form class="spotify" action="/spotify-client" method="POST">
+            <label for="client-id">Client ID</label>
+            <input type="text" id="client-id" name="client-id"><br>
+            <label for="client-secret">Client Secret</label>
+            <input type="text" id="client-secret" name="client-secret"><br>
+            <input type="submit" value="Submit">
+        </form>
+    </div>
+    <div class="footer">
+        <div class="text">Copyright © Koji Gardiner 2022</div>
+    </div>
+</body>
+
+</html>

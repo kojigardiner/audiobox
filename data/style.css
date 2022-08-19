@@ -35,7 +35,7 @@ body {
 }
 
 .content,
-form.wifi {
+form {
     display: flex;
     flex-direction: column;
     justify-content: space-around;
@@ -53,15 +53,17 @@ form.wifi {
     justify-content: space-between;
 }
 
-.ssid-name {
-    font-weight: lighter;
-}
-
+.ssid-name,
 .ssid-status {
     font-weight: light;
     background-color: gray;
     padding: 10px;
     border-radius: 100px;
+}
+
+a.link {
+    color: #f7ebec;
+    font-weight: bolder;
 }
 
 .button,

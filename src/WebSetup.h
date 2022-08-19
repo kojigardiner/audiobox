@@ -89,6 +89,43 @@ void handle_wifi_manual(AsyncWebServerRequest* request) {
     request->send(SPIFFS, "/wifi.html", String(), false, processor);
 }
 
+// Handler for /spotify_client
+void handle_spotify_client(AsyncWebServerRequest* request) {
+    int n_params = request->params();
+
+    char client_id[CLI_MAX_CHARS];
+    char client_secret[CLI_MAX_CHARS];
+    char auth_b64[CLI_MAX_CHARS];
+
+    for (int i = 0; i < n_params; i++) {
+        AsyncWebParameter* p = request->getParam(i);
+        if (p->isPost()) {
+            if (p->name() == "client-id") {
+                strncpy(client_id, p->value().c_str(), CLI_MAX_CHARS);
+            }
+            if (p->name() == "client-secret") {
+                strncpy(client_secret, p->value().c_str(), CLI_MAX_CHARS);
+            }
+        }
+    }
+
+    Preferences prefs;
+    prefs.begin(APP_NAME, false);
+    // check that we got valid non-zero length entries
+    if (strlen(client_id) && strlen(client_secret)) {
+        set_pref(&prefs, PREFS_SPOTIFY_CLIENT_ID_KEY, client_id);
+        set_pref(&prefs, PREFS_SPOTIFY_CLIENT_SECRET_KEY, client_secret);
+    }
+
+    compute_auth_b64(client_id, client_secret, auth_b64);
+    print("Storing: %s\n", auth_b64);
+    prefs.putString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64);
+    prefs.end();
+
+    // Send user back to spotify page
+    request->send(SPIFFS, "/spotify.html", String(), false, processor);
+}
+
 void web_prefs() {
     // Filessystem setup
     print("Setting up filesystem\n");
@@ -109,6 +146,7 @@ void web_prefs() {
     server.on("/exit", HTTP_GET, handle_exit);
     server.on("/wifi-manual", HTTP_POST, handle_wifi_manual);
     server.on("/wifi-test", HTTP_GET, handle_wifi_test);
+    server.on("/spotify-client", HTTP_POST, handle_spotify_client);
 
     // Handle all other static page requests
     server.serveStatic("/", SPIFFS, "/")
