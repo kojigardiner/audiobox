@@ -14,6 +14,14 @@ const char SPOTIFY_REDIRECT_URI[] = "http%3A%2F%2F192.168.3.147%2Fspotify-auth";
 const char SPOTIFY_SCOPE[] = "user-read-playback-state+user-read-playback-position";  //+user-modify-playback-state"
 const char SPOTIFY_PLAYER_URL[] = "https://api.spotify.com/v1/me/player";
 const char SPOTIFY_FEATURES_URL[] = "https://api.spotify.com/v1/audio-features";
+const char SPOTIFY_JSON_FILENAME[] = "/spotify.json";
+
+// Size (in bytes) to allocate in the DynamicJsonDocument to deserialize the json
+// Commented values were empirically found to be ~averages
+#define SPOTIFY_TOKEN_JSON_SIZE 2000          // ~300 bytes
+#define SPOTIFY_PLAYER_JSON_SIZE 2000         // 5000~6000 bytes ==> 2000 bytes of json memory after filtering
+#define SPOTIFY_FEATURES_JSON_SIZE 2000       // ~600 bytes
+#define SPOTIFY_REFRESH_TOKEN_JSON_SIZE 2000  // ~500 bytes
 
 class Spotify {
    public:
@@ -81,13 +89,20 @@ class Spotify {
     bool _get_art();
 
     // Parse the json response from the Spotify Web API
-    void _parse_json(DynamicJsonDocument *json);
+    void _parse_json(JsonDocument *json);
 
     // Reset member variables to default values
     void _reset_variables();
 
     // Helper function to workaround https memory issue
     void _replace_https_with_http(char *url);
+
+    // Write the http response to a specified file
+    static int _write_http_response_to_file(HTTPClient *http, const char *filename);
+
+    // Populate the json document with contents of the specified file
+    static DeserializationError _deserialize_json_from_file(JsonDocument *json, const char *filename);
+    static DeserializationError _deserialize_json_from_string(JsonDocument *json, String *response, bool use_filter = false);
 
     // Variables
     bool _token_expired;

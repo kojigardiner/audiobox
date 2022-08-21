@@ -48,9 +48,6 @@ SemaphoreHandle_t mutex_leds;
 TaskHandle_t task_eventhandler;
 QueueHandle_t q_events;
 
-TaskHandle_t task_server;
-QueueHandle_t q_server;
-
 TaskHandle_t task_buttons;
 QueueHandle_t q_buttons;
 
@@ -77,7 +74,6 @@ void task_audio_code(void *parameter);
 void task_display_code(void *parameter);
 void task_servo_code(void *parameter);
 void task_mode_code(void *parameter);
-void task_server_code(void *parameter);
 
 typedef struct AlbumArt {
     uint16_t full_art_rgb565[64][64] = {{0}};     // full resolution RGB565 artwork
@@ -107,6 +103,13 @@ void setup() {
     print("Initial safety delay\n");
     delay(500);  // power-up safety delay to avoid brown out
 
+    // Filessystem setup
+    print("Setting up filesystem\n");
+    if (!SPIFFS.begin(true)) {
+        print("An Error has occurred while mounting SPIFFS\n");
+        return;
+    }
+
     // Drop into debug CLI if button is depressed
     pinMode(PIN_BUTTON_MODE, INPUT_PULLUP);
     pinMode(PIN_BUTTON2_MODE, INPUT_PULLUP);
@@ -134,14 +137,9 @@ void setup() {
         }
     }
 
-    // test_modes();
+    web_prefs(false);
 
-    // Filessystem setup
-    print("Setting up filesystem\n");
-    if (!SPIFFS.begin(true)) {
-        print("An Error has occurred while mounting SPIFFS\n");
-        return;
-    }
+    // test_modes();
 
     // LED Setup
     print("Setting up LEDs\n");
@@ -187,13 +185,10 @@ void setup() {
     q_mode = xQueueCreate(10, sizeof(event_t));
     eh.register_task(&task_mode, q_mode, EVENT_START | EVENT_BUTTON_PRESSED | EVENT_SPOTIFY_UPDATED);
 
-    q_server = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_server, q_server, EVENT_NONE);
-
     xTaskCreatePinnedToCore(
         task_spotify_code,  // Function to implement the task
         "task_spotify",     // Name of the task
-        10000,              // Stack size in words
+        12000,              // Stack size in bytes
         q_spotify,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_spotify,      // Task handle
@@ -203,7 +198,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_display_code,  // Function to implement the task
         "task_display",     // Name of the task
-        10000,              // Stack size in words
+        2000,               // Stack size in bytes
         q_display,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_display,      // Task handle
@@ -213,7 +208,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_buttons_code,  // Function to implement the task
         "task_buttons",     // Name of the task
-        5000,               // Stack size in words
+        2000,               // Stack size in bytes
         q_buttons,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_buttons,      // Task handle
@@ -223,7 +218,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_mode_code,  // Function to implement the task
         "task_mode",     // Name of the task
-        5000,            // Stack size in words
+        3000,            // Stack size in bytes
         q_mode,          // Task input parameter
         1,               // Priority of the task (don't use 0!)
         &task_mode,      // Task handle
@@ -233,7 +228,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_audio_code,  // Function to implement the task
         "task_audio",     // Name of the task
-        30000,            // Stack size in words
+        25000,            // Stack size in bytes
         q_audio,          // Task input parameter
         1,                // Priority of the task (don't use 0!)
         &task_audio,      // Task handle
@@ -243,28 +238,18 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_servo_code,  // Function to implement the task
         "task_servo",     // Name of the task
-        2000,             // Stack size in words
+        2500,             // Stack size in bytes
         q_servo,          // Task input parameter
         1,                // Priority of the task (don't use 0!)
         &task_servo,      // Task handle
         1                 // Pinned core
     );
 
-    xTaskCreatePinnedToCore(
-        task_server_code,  // Function to implement the task
-        "task_server",     // Name of the task
-        2000,              // Stack size in words
-        q_server,          // Task input parameter
-        1,                 // Priority of the task (don't use 0!)
-        &task_server,      // Task handle
-        0                  // Pinned core - 0 is the same core as WiFi
-    );
-
     // Setup eventhandler task last
     xTaskCreatePinnedToCore(
         task_eventhandler_code,  // Function to implement the task
         "task_eventhandler",     // Name of the task
-        2000,                    // Stack size in words
+        2500,                    // Stack size in bytes
         NULL,                    // Task input parameter
         1,                       // Priority of the task (don't use 0!)
         &task_eventhandler,      // Task handle
@@ -282,6 +267,15 @@ void task_eventhandler_code(void *parameter) {
         xQueueReceive(q_events, &e, portMAX_DELAY);
         // print("Received event, %d\n", e.event_type);
         eh.process(e);
+
+        // print("task memory: %d,%d,%d,%d,%d,%d,%d\n",
+        //       uxTaskGetStackHighWaterMark(task_eventhandler),
+        //       uxTaskGetStackHighWaterMark(task_buttons),
+        //       uxTaskGetStackHighWaterMark(task_spotify),
+        //       uxTaskGetStackHighWaterMark(task_audio),
+        //       uxTaskGetStackHighWaterMark(task_display),
+        //       uxTaskGetStackHighWaterMark(task_servo),
+        //       uxTaskGetStackHighWaterMark(task_mode));
     }
 }
 
@@ -949,114 +943,6 @@ void display_full_art(uint8_t offset_row, uint8_t offset_col) {
             }
         }
     }
-}
-
-void task_server_code(void *parameter) {
-    print("task_server_code running on core ");
-    print("%d\n", xPortGetCoreID());
-
-    BaseType_t q_return;
-    QueueHandle_t q = (QueueHandle_t)parameter;
-    event_t received_event = {};
-
-    WiFiServer server(80);
-
-    // Variable to store the HTTP request
-    String header;
-
-    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
-    if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
-        print("Starting task\n");
-    }
-
-    // Current time
-    unsigned long currentTime = millis();
-    // Previous time
-    unsigned long previousTime = 0;
-    // Define timeout time in milliseconds (example: 2000ms = 2s)
-    const long timeoutTime = 2000;
-
-    print("local ip: %s\n", WiFi.localIP().toString().c_str());
-    server.begin();
-
-    for (;;) {
-        WiFiClient client = server.available();  // Listen for incoming clients
-
-        if (client) {  // If a new client connects,
-            currentTime = millis();
-            previousTime = currentTime;
-            Serial.println("New Client.");                                             // print a message out in the serial port
-            String currentLine = "";                                                   // make a String to hold incoming data from the client
-            while (client.connected() && currentTime - previousTime <= timeoutTime) {  // loop while the client's connected
-                currentTime = millis();
-                if (client.available()) {    // if there's bytes to read from the client,
-                    char c = client.read();  // read a byte, then
-                    Serial.write(c);         // print it out the serial monitor
-                    header += c;
-                    if (c == '\n') {  // if the byte is a newline character
-                        // if the current line is blank, you got two newline characters in a row.
-                        // that's the end of the client HTTP request, so send a response:
-                        if (currentLine.length() == 0) {
-                            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-                            // and a content-type so the client knows what's coming, then a blank line:
-                            client.println("HTTP/1.1 200 OK");
-                            client.println("Content-type:text/html");
-                            client.println("Connection: close");
-                            client.println();
-
-                            // turns the GPIOs on and off
-                            if (header.indexOf("GET /button1/momentary") >= 0) {
-                                Serial.println("Button 1, momentary press");
-                                button_event_t button_event = {.id = PIN_BUTTON_MODE, .state = ButtonFSM::MOMENTARY_TRIGGERED};
-                                event_t e = {.event_type = EVENT_BUTTON_PRESSED, {.button_info = button_event}};
-                                eh.emit(e);
-                            } else if (header.indexOf("GET /button2/momentary") >= 0) {
-                                Serial.println("Button 2, momentary press");
-                                button_event_t button_event = {.id = PIN_BUTTON2_MODE, .state = ButtonFSM::MOMENTARY_TRIGGERED};
-                                event_t e = {.event_type = EVENT_BUTTON_PRESSED, {.button_info = button_event}};
-                                eh.emit(e);
-                            }
-
-                            // Display the HTML web page
-                            client.println("<!DOCTYPE html><html>");
-                            client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-                            client.println("<link rel=\"icon\" href=\"data:,\">");
-                            // CSS to style the on/off buttons
-                            // Feel free to change the background-color and font-size attributes to fit your preferences
-                            client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
-                            client.println(".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px;");
-                            client.println("text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}");
-                            client.println(".button2 {background-color: #555555;}</style></head>");
-
-                            // Web Page Heading
-                            client.println("<body><h1>Audiobox Control</h1>");
-
-                            client.println("<p><a href=\"/button1/momentary\"><button class=\"button\">Button 1</button></a></p>");
-                            client.println("<p><a href=\"/button2/momentary\"><button class=\"button\">Button 2</button></a></p>");
-                            client.println("</body></html>");
-
-                            // The HTTP response ends with another blank line
-                            client.println();
-                            // Break out of the while loop
-                            break;
-                        } else {  // if you got a newline, then clear currentLine
-                            currentLine = "";
-                        }
-                    } else if (c != '\r') {  // if you got anything else but a carriage return character,
-                        currentLine += c;    // add it to the end of the currentLine
-                    }
-                }
-            }
-            // Clear the header variable
-            header = "";
-            // Close the connection
-            client.stop();
-            Serial.println("Client disconnected.");
-            Serial.println("");
-        }
-        vTaskDelay(1000 / portTICK_RATE_MS);  // added to avoid starving other tasks
-    }
-    vTaskDelete(NULL);
 }
 
 bool copy_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {

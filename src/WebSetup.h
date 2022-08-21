@@ -12,6 +12,8 @@
 AsyncWebServer server(80);
 AsyncEventSource web_events("/events");
 
+extern EventHandler eh;
+
 // Template processing
 String processor(const String& var) {
     if (var == "CURRENT_SSID") {
@@ -31,6 +33,10 @@ String processor(const String& var) {
             return F("Connected");
         else
             return F("Not Connected");
+    } else if (var == "SPOTIFY_USER") {
+        return F("Koji");
+    } else if (var == "SPOTIFY_PLAYING") {
+        return F("Basket Case...");
     }
 
     return String();
@@ -155,6 +161,14 @@ void handle_spotify_auth(AsyncWebServerRequest* request) {
     request->send(SPIFFS, "/spotify.html", String(), false, processor);
 }
 
+void handle_change_mode(AsyncWebServerRequest* request) {
+    button_event_t button_event = {.id = PIN_BUTTON_MODE, .state = ButtonFSM::MOMENTARY_TRIGGERED};
+    event_t e = {.event_type = EVENT_BUTTON_PRESSED, {.button_info = button_event}};
+    eh.emit(e);
+
+    request->send(SPIFFS, "/index.html", String(), false, processor);
+}
+
 void web_prefs(bool ap_mode) {
     // Filessystem setup
     print("Setting up filesystem\n");
@@ -181,6 +195,7 @@ void web_prefs(bool ap_mode) {
     server.on("/spotify-client", HTTP_POST, handle_spotify_client);
     server.on("/spotify-account", HTTP_GET, handle_spotify_account);
     server.on("/spotify-auth", HTTP_GET, handle_spotify_auth);
+    server.on("/change-mode", HTTP_GET, handle_change_mode);
 
     // Handle all other static page requests
     server.serveStatic("/", SPIFFS, "/")

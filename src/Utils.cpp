@@ -163,3 +163,12 @@ void print(const char *format, ...) {
 
     va_end(args);
 }
+
+void get_memory_stats_with_caller(const char *caller_name, int line) {
+    print("get_memory_stats() called from: %s:%d\n", caller_name, line);
+    print("total free heap (MALLOC_CAP_INTERNAL):    %d\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    print("total free heap (MALLOC_CAP_DEFAULT):     %d\n", heap_caps_get_free_size(MALLOC_CAP_DEFAULT));
+    print("largest free block (MALLOC_CAP_INTERNAL): %d\n", heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    print("largest free block (MALLOC_CAP_DEFAULT):  %d\n", heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+    print("task high-water mark:                     %d\n", uxTaskGetStackHighWaterMark(NULL));
+}

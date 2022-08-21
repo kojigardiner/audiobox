@@ -33,7 +33,8 @@ body {
 
 .header .title {
     justify-self: center;
-    margin-bottom: 10px;
+    margin: 10px;
+    text-align: center;
 }
 
 .content,
@@ -50,21 +51,40 @@ form {
 
 .status {
     display: flex;
-    align-items: center;
     justify-content: space-between;
     padding: 10px;
     border: 1px gray solid;
-    border-radius: 100px;
+    border-radius: 30px;
+    gap: 10px;
+}
+
+.wifi,
+.spotify {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+}
+
+.wifi-detail,
+.spotify-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-self: flex-start;
+    text-align: center;
 }
 
 .ssid-name,
-.ssid-status {
+.ssid-status,
+.spotify-account,
+.spotify-now-playing {
     font-size: 12px;
     font-weight: light;
-    background-color: gray;
     padding: 4px;
     border-radius: 100px;
 }
+
 
 a.link {
     color: #f7ebec;
