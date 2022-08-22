@@ -13,6 +13,7 @@ const char SPOTIFY_TOKEN_URL[] = "https://accounts.spotify.com/api/token";
 const char SPOTIFY_REDIRECT_URI[] = "http%3A%2F%2F192.168.3.147%2Fspotify-auth";
 const char SPOTIFY_SCOPE[] = "user-read-playback-state+user-read-playback-position";  //+user-modify-playback-state"
 const char SPOTIFY_PLAYER_URL[] = "https://api.spotify.com/v1/me/player";
+const char SPOTIFY_USER_URL[] = "https://api.spotify.com/v1/me";
 const char SPOTIFY_FEATURES_URL[] = "https://api.spotify.com/v1/audio-features";
 const char SPOTIFY_JSON_FILENAME[] = "/spotify.json";
 
@@ -22,6 +23,7 @@ const char SPOTIFY_JSON_FILENAME[] = "/spotify.json";
 #define SPOTIFY_PLAYER_JSON_SIZE 2000         // 5000~6000 bytes ==> 2000 bytes of json memory after filtering
 #define SPOTIFY_FEATURES_JSON_SIZE 2000       // ~600 bytes
 #define SPOTIFY_REFRESH_TOKEN_JSON_SIZE 2000  // ~500 bytes
+#define SPOTIFY_USER_JSON_SIZE 2000
 
 class Spotify {
    public:
@@ -70,6 +72,12 @@ class Spotify {
     // Indicates if Spotify is currently running on the linked account
     bool is_active();
 
+    // Get the user name for the currently linked account
+    void get_user_name(char *user_name);
+
+    // Get the url for the current album art
+    void get_art_url(char *url);
+
     // Returns a struct with public data
     public_data_t get_data();
 
@@ -78,6 +86,9 @@ class Spotify {
 
     // Get an authenticated token for use with the Spotify Web API
     bool _get_token();
+
+    // Get the current user's profile via the Web API
+    bool _get_user_profile();
 
     // Get details on current Spotify playback via the Web API
     bool _get_player();
@@ -110,6 +121,7 @@ class Spotify {
     char _refresh_token[CLI_MAX_CHARS];
     char _client_id[CLI_MAX_CHARS];
     char _auth_b64[CLI_MAX_CHARS];
+    char _user_name[CLI_MAX_CHARS];
 
     unsigned long _progress_ms;
     unsigned long _duration_ms;

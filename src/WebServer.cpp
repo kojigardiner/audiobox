@@ -1,18 +1,10 @@
-#ifndef WEB_SETUP_H_
-#define WEB_SETUP_H_
+#include "WebServer.h"
 
-#include <ESPAsyncWebServer.h>
 #include <SPIFFS.h>
 
 #include "CLI.h"
 #include "Constants.h"
 #include "Utils.h"
-
-// Create AsyncWebServer object on port 80
-AsyncWebServer server(80);
-AsyncEventSource web_events("/events");
-
-extern EventHandler eh;
 
 // Template processing
 String processor(const String& var) {
@@ -34,19 +26,20 @@ String processor(const String& var) {
         else
             return F("Not Connected");
     } else if (var == "SPOTIFY_USER") {
-        return F("Koji");
-    } else if (var == "SPOTIFY_PLAYING") {
-        return F("Basket Case...");
+        Preferences prefs;
+        prefs.begin(APP_NAME, false);
+
+        char sp_user[CLI_MAX_CHARS];
+
+        if (!prefs.getString(PREFS_SPOTIFY_USER_NAME_KEY, sp_user, CLI_MAX_CHARS)) {
+            prefs.end();
+            return F("*** not set ***");
+        }
+        prefs.end();
+        return F(sp_user);
     }
 
     return String();
-}
-
-// Clean up on exit
-void web_prefs_end() {
-    server.end();
-    WiFi.disconnect();
-    SPIFFS.end();
 }
 
 void handle_wifi_test(AsyncWebServerRequest* request) {
@@ -58,9 +51,10 @@ void handle_wifi_test(AsyncWebServerRequest* request) {
 
 // Handler for /exit
 void handle_exit(AsyncWebServerRequest* request) {
-    web_prefs_end();
-    print("Restarting...");
-    ESP.restart();
+    print("Rebooting...\n");
+    event_t e = {.event_type = EVENT_REBOOT};
+    eh.emit(e);
+    request->send(SPIFFS, "/index.html", String(), false, processor);  // send user back home
 }
 
 // Handler for /wifi_manual
@@ -146,14 +140,14 @@ void handle_spotify_account(AsyncWebServerRequest* request) {
 
 void handle_spotify_auth(AsyncWebServerRequest* request) {
     int n_params = request->params();
-    char refresh_token[CLI_MAX_CHARS];
 
     for (int i = 0; i < n_params; i++) {
         AsyncWebParameter* p = request->getParam(i);
 
         if (p->name() == "code") {
-            get_spotify_refresh_token(p->value().c_str(), refresh_token);
-            save_spotify_refresh_token(refresh_token);
+            if (get_and_save_spotify_refresh_token(p->value().c_str())) {
+                get_and_save_spotify_user_name();
+            }
         }
     }
 
@@ -219,5 +213,3 @@ void web_prefs(bool ap_mode) {
 
     server.begin();
 }
-
-#endif  // WEB_SETUP_H_

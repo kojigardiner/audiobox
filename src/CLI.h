@@ -10,7 +10,7 @@ void set_spotify_account();
 void clear_prefs();
 void test_wifi_connection();
 bool get_spotify_auth_url(char *auth_url);
-bool get_spotify_refresh_token(const char *auth_code, char *refresh_token);
-void save_spotify_refresh_token(char *refresh_token);
+bool get_and_save_spotify_refresh_token(const char *auth_code);
+bool get_and_save_spotify_user_name();
 
 #endif  // CLI_H

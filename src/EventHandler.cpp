@@ -25,6 +25,12 @@ void EventHandler::emit(event_t e) {
     }
 }
 
+void EventHandler::emit_from_isr(event_t e) {
+    if (xQueueSendFromISR(_q_events, &e, 0) != pdTRUE) {
+        print("WARNING: emit failed to enqueue event!\n");
+    }
+}
+
 void EventHandler::subscribe(TaskHandle_t *t, EventType et) {
     for (int i = 0; i < _num_tasks; i++) {
         if (_task_associations[i].t == t) {

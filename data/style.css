@@ -42,7 +42,8 @@ form {
     display: flex;
     flex-direction: column;
     justify-content: space-around;
-    gap: 10px;
+    gap: 15px;
+    margin: 10px 0px;
 }
 
 .content .text {
@@ -77,8 +78,8 @@ form {
 
 .ssid-name,
 .ssid-status,
-.spotify-account,
-.spotify-now-playing {
+.spotify-user,
+.spotify-active {
     font-size: 12px;
     font-weight: light;
     padding: 4px;
@@ -93,15 +94,22 @@ a.link {
 
 .button,
 input[type=submit] {
-    padding: 10px;
+    padding: 20px;
     border-radius: 8px;
     border-style: none;
     background-color: #59656f;
     color: #f7ebec;
-    font-size: 14px;
+    font-size: 18px;
     font-weight: light;
     text-decoration: none;
     text-align: center;
+}
+
+.album-art {
+    flex: 0, 0, auto;
+    max-width: 300px;
+    max-height: auto;
+    align-self: center;
 }
 
 .footer {

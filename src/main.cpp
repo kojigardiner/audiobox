@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
+#include <ESPAsyncWebServer.h>
 #include <FastLED.h>
 #include <Preferences.h>
 #include <SPIFFS.h>
@@ -19,7 +20,7 @@
 #include "ModeSequence.h"
 #include "Spotify.h"
 #include "Utils.h"
-#include "WebSetup.h"
+#include "WebServer.h"
 
 /*** Function Prototypes ***/
 
@@ -40,6 +41,10 @@ void test_modes();
 
 // EventHandler
 EventHandler eh;
+
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
+AsyncEventSource web_events("/events");
 
 // Semaphores
 SemaphoreHandle_t mutex_leds;
@@ -84,6 +89,11 @@ AlbumArt_t album_art;
 
 LEDPanel lp = LEDPanel(GRID_W, GRID_H, NUM_LEDS, PIN_LED_CONTROL, MAX_BRIGHT, true, LEDPanel::BOTTOM_LEFT);
 
+// ISRs
+void IRAM_ATTR deep_sleep_start_isr() {
+    esp_deep_sleep_start();  // go to sleep if switch is high
+}
+
 void setup() {
     pinMode(PIN_LED_STATUS, OUTPUT);
     pinMode(PIN_BUTTON_LED, OUTPUT);
@@ -96,12 +106,15 @@ void setup() {
 
     esp_sleep_enable_ext0_wakeup(PIN_POWER_SWITCH, LOW);  // setup wake from sleep
     if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
-        print("Switch is high, going to sleep\n");
-        esp_deep_sleep_start();  // go to sleep if switch is high
+        print("Power switch is high, going to sleep");
+        esp_deep_sleep_start();  // go to sleep immediately if switch is high
     }
+    attachInterrupt(PIN_POWER_SWITCH, deep_sleep_start_isr, HIGH);  // attach interrupt to start sleep immediately on power toggle during setup
 
     print("Initial safety delay\n");
     delay(500);  // power-up safety delay to avoid brown out
+
+    disableCore0WDT();  // hack to avoid various kernel panics
 
     // Filessystem setup
     print("Setting up filesystem\n");
@@ -114,9 +127,18 @@ void setup() {
     pinMode(PIN_BUTTON_MODE, INPUT_PULLUP);
     pinMode(PIN_BUTTON2_MODE, INPUT_PULLUP);
 
+    // CLI setup
     if (digitalRead(PIN_BUTTON_MODE) == LOW) {
         start_cli();
+        ESP.restart();
     }
+
+    // // web setup
+    // if (digitalRead(PIN_BUTTON2_MODE) == LOW) {
+    //     web_prefs(false);
+    //     while (true) {  // hang to debug
+    //     }
+    // }
 
     print("Loading preferences\n");
 
@@ -128,13 +150,6 @@ void setup() {
     if (!connect_wifi()) {
         print("Wifi could not connect! Power off and power on while holding down the main button to configure preferences.\n");
         web_prefs(true);  // start in ap mode
-    }
-
-    // hang so we can debug
-    if (digitalRead(PIN_BUTTON2_MODE) == LOW) {
-        web_prefs(false);
-        while (true) {
-        }
     }
 
     web_prefs(false);
@@ -149,6 +164,7 @@ void setup() {
 
     // Turn on button LED to indicate setup is complete
     digitalWrite(PIN_BUTTON_LED, HIGH);
+    detachInterrupt(PIN_POWER_SWITCH);  // detach the power down interrupt we had during the setup phase
 
     // Task setup
     mutex_leds = xSemaphoreCreateMutex();
@@ -160,8 +176,6 @@ void setup() {
     // q_mode = xQueueCreate(1, sizeof(Modes_t));
     // q_audio_done = xQueueCreate(1, sizeof(uint8_t));
     // q_event = xQueueCreate(10, sizeof(event_t));
-
-    disableCore0WDT();  // hack to avoid various kernel panics
 
     // setup event handler
     q_events = xQueueCreate(MAX_EVENTHANDLER_EVENTS, sizeof(event_t));
@@ -183,7 +197,7 @@ void setup() {
     eh.register_task(&task_servo, q_servo, EVENT_START | EVENT_SERVO_POS_CHANGED | EVENT_MODE_CHANGED);
 
     q_mode = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_mode, q_mode, EVENT_START | EVENT_BUTTON_PRESSED | EVENT_SPOTIFY_UPDATED);
+    eh.register_task(&task_mode, q_mode, EVENT_START | EVENT_BUTTON_PRESSED | EVENT_SPOTIFY_UPDATED | EVENT_POWER_OFF | EVENT_REBOOT);
 
     xTaskCreatePinnedToCore(
         task_spotify_code,  // Function to implement the task
@@ -627,8 +641,14 @@ void task_spotify_code(void *parameter) {
                 if (sp_data.art_changed && sp_data.is_active) {  // only update art if spotify is active
                     decode_art(sp_data.art_data, sp_data.art_num_bytes);
                 }
+
                 event_t e = {.event_type = EVENT_SPOTIFY_UPDATED, {.sp_data = sp_data}};
                 eh.emit(e);  // set timeout to zero so loop will continue until display is updated
+
+                char url[CLI_MAX_CHARS];
+                sp.get_art_url(url);
+                web_events.send(sp_data.is_active ? "Active" : "Inactive", "spotify_active", millis());
+                web_events.send(url, "spotify_art_url", millis());
             }
         } else {
             web_events.send("Not Connected", "wifi", millis());
@@ -692,24 +712,47 @@ void task_mode_code(void *parameter) {
     for (;;) {
         mode_changed = false;
 
-        // Check for power off
+        // check state of power switch
         if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
-            // we want to park the display at the SERVO_POS_NOISE, which is the start position
-            e = {.event_type = EVENT_SERVO_POS_CHANGED, {.servo_pos = SERVO_POS_NOISE}};
+            event_t e = {.event_type = EVENT_POWER_OFF};
             eh.emit(e);
-
-            xSemaphoreTake(mutex_leds, portMAX_DELAY);
-
-            int servo_pos_delta = abs(curr_mode.sub.get_servo_pos() - SERVO_POS_NOISE);
-            vTaskDelay((servo_pos_delta * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
-            FastLED.clear(true);                                                     // in case display got activated
-            print("Switch is high, going to sleep\n");
-            esp_deep_sleep_start();
         }
 
         q_return = xQueueReceive(q, &received_event, 0);  // get any updates
         if (q_return == pdTRUE) {
             switch (received_event.event_type) {
+                case EVENT_POWER_OFF:
+                case EVENT_REBOOT: {
+                    // receive power down event and process it
+
+                    print("Power event received, parking servo\n");
+                    // we want to park the display at the SERVO_POS_NOISE, which is the start position
+                    e = {.event_type = EVENT_SERVO_POS_CHANGED, {.servo_pos = SERVO_POS_NOISE}};
+                    eh.emit(e);
+
+                    xSemaphoreTake(mutex_leds, portMAX_DELAY);
+                    int servo_pos_delta = abs(curr_mode.sub.get_servo_pos() - SERVO_POS_NOISE);
+                    vTaskDelay((servo_pos_delta * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
+
+                    print("Clearing display\n");
+                    FastLED.clear(true);  // in case display got activated
+
+                    print("Unmounting filesystem\n");
+                    SPIFFS.end();
+
+                    print("Disconnecting web server and wifi\n");
+                    server.end();
+                    WiFi.disconnect();
+
+                    if (received_event.event_type == EVENT_POWER_OFF) {
+                        print("Going to sleep\n");
+                        esp_deep_sleep_start();
+                    } else {
+                        print("Rebooting\n");
+                        ESP.restart();
+                    }
+                    break;
+                }
                 case EVENT_SPOTIFY_UPDATED:
                     sp_data = received_event.sp_data;
                     if (sp_data.art_changed || !sp_data.is_active) {

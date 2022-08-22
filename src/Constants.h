@@ -14,6 +14,7 @@ const char* const PREFS_SPOTIFY_CLIENT_ID_KEY = "sp_cli_id";
 const char* const PREFS_SPOTIFY_CLIENT_SECRET_KEY = "sp_cli_sec";
 const char* const PREFS_SPOTIFY_AUTH_B64_KEY = "sp_auth_b64";
 const char* const PREFS_SPOTIFY_REFRESH_TOKEN_KEY = "sp_ref_tok";
+const char* const PREFS_SPOTIFY_USER_NAME_KEY = "sp_user";
 
 const uint8_t WIFI_LOCAL_IP[4] = {192, 168, 3, 147};
 const uint8_t WIFI_GATEWAY[4] = {192, 168, 1, 1};
