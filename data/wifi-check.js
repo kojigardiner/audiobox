@@ -1,8 +1,11 @@
-ssidStatus = document.querySelector(".ssid-status");
-spotifyActive = document.querySelector(".spotify-active");
-albumArt = document.querySelector(".album-art");
+let paletteSize = 4;
+let paletteMargin = 1;
+const ssidStatus = document.querySelector(".ssid-status");
+const spotifyActive = document.querySelector(".spotify-active");
+const albumArt = document.querySelector(".album-art");
 updateWifiStatus();
 updateSpotifyStatus();
+createPalette(paletteSize);
 
 // Handle server sent events
 if (!!window.EventSource) {
@@ -36,9 +39,39 @@ if (!!window.EventSource) {
 
     source.addEventListener('spotify_art_url', function (e) {
         console.log("spotify_art_url", e.data);
-        const large_img_url = get_large_art_url(e.data);
-        albumArt.setAttribute("src", large_img_url);
+        if (e.data !== "") {
+            const large_img_url = getLargeArtUrl(e.data);
+            albumArt.setAttribute("src", large_img_url);
+        }
     }, false);
+
+    source.addEventListener('palette', function (e) {
+        console.log("palette", e.data);
+        parsePalette(e.data);
+    }, false);
+}
+
+function createPalette(paletteSize) {
+    const container = document.querySelector(".palette");
+
+    container.replaceChildren();    // clear the existing elements
+
+    // create the grid elements
+    for (let i = 0; i < paletteSize; i++) {
+        const divRow = document.createElement("div");
+        divRow.classList.add("paletteRow");
+        container.appendChild(divRow);
+        for (let j = 0; j < paletteSize; j++) {
+            const divElement = document.createElement("div");
+            divElement.classList.add(`entry${j}`);
+            divElement.classList.add("paletteEntry");
+            divElement.style.backgroundColor = "black";
+            divElement.style.width = `${albumArt.width / paletteSize}px`;
+            divElement.style.height = `${albumArt.width / paletteSize}px`;
+            divElement.style.margin = `${paletteMargin}px`;
+            divRow.appendChild(divElement);
+        }
+    }
 }
 
 // Update status color
@@ -59,6 +92,7 @@ function updateWifiStatus() {
     }
 }
 
+// Update status bar
 function updateSpotifyStatus() {
     switch (spotifyActive.textContent.toLowerCase()) {
         case "active":
@@ -70,15 +104,29 @@ function updateSpotifyStatus() {
     }
 }
 
-function get_large_art_url(url) {
+// Convert url to get the 640x640 image
+function getLargeArtUrl(url) {
     const url_obj = new URL(url);
     const url_parts = url_obj.pathname.split("/");
     const img_id = url_parts.at(-1);
 
+    // by inspection, can determine that replacing the characters here results in a
+    // link to the 640x640 image
     const large_tag = "b273"
     const img_tag_start = 12;
 
     const img_large_id = img_id.slice(0, img_tag_start) + large_tag + img_id.slice(img_tag_start + large_tag.length);
     const new_url = [url_obj.origin, ...url_parts.slice(1, -1), img_large_id].join("/");
     return new_url;
+}
+
+// parse the palette string sent by the box
+function parsePalette(paletteStr) {
+    colorStrArr = paletteStr.split("\n").map(element => `rgb(${element})`);
+
+    entries = Array.from(document.querySelectorAll(".paletteEntry"));
+
+    for (let i = 0; i < entries.length; i++) {
+        entries.at(i).style.backgroundColor = colorStrArr.at(i);
+    }
 }

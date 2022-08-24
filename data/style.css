@@ -105,11 +105,22 @@ input[type=submit] {
     text-align: center;
 }
 
+.album {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+}
+
 .album-art {
     flex: 0, 0, auto;
     max-width: 300px;
     max-height: auto;
     align-self: center;
+}
+
+.palette {
+    display: flex;
 }
 
 .footer {

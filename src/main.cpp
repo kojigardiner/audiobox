@@ -645,10 +645,20 @@ void task_spotify_code(void *parameter) {
                 event_t e = {.event_type = EVENT_SPOTIFY_UPDATED, {.sp_data = sp_data}};
                 eh.emit(e);  // set timeout to zero so loop will continue until display is updated
 
-                char url[CLI_MAX_CHARS];
-                sp.get_art_url(url);
+                char web_str[CLI_MAX_CHARS];
+                sp.get_art_url(web_str);
                 web_events.send(sp_data.is_active ? "Active" : "Inactive", "spotify_active", millis());
-                web_events.send(url, "spotify_art_url", millis());
+                web_events.send(web_str, "spotify_art_url", millis());
+
+                strncpy(web_str, "", CLI_MAX_CHARS);  // clear out the string
+                CRGBPalette16 curr_palette = lp.get_target_palette();
+                for (int i = 0; i < PALETTE_ENTRIES; i++) {
+                    int color_str_len = 16;
+                    char color_str[color_str_len];
+                    snprintf(color_str, color_str_len, "%d,%d,%d\n", curr_palette[i].r, curr_palette[i].g, curr_palette[i].b);
+                    strncat(web_str, color_str, color_str_len);
+                }
+                web_events.send(web_str, "palette", millis());
             }
         } else {
             web_events.send("Not Connected", "wifi", millis());
