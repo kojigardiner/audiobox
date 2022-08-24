@@ -5,19 +5,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css">
-    <title>Audiobox Preferences - Spotify</title>
-    <script src="wifi-check.js" defer></script>
+    <title>Audiobox XL - Spotify</title>
+    <script src="audiobox.js" defer></script>
 </head>
 
 <body>
     <div class="header">
-        <a class="back" href="index.html">&lt; Prefs</a>
+        <a class="back" href="index-setup.html">&lt; Setup</a>
         <div class="title">Spotify Menu</div>
-        <a class="forward invisible" href="#">&lt; Prefs</a>
+        <a class="forward hidden" href="#">&lt; Setup</a>
     </div>
     <div class="status">
-        <div class="ssid-name">WiFi: %CURRENT_SSID%</div>
-        <div class="ssid-status">%WIFI_STATUS%</div>
+        <div class="wifi">
+            <div class="wifi-detail">
+                <div class="ssid-name">WiFi: %CURRENT_SSID%</div>
+                <div class="ssid-status">%WIFI_STATUS%</div>
+            </div>
+        </div>
+        <div class="spotify">
+            <div class="spotify-detail">
+                <div class="spotify-user">Spotify: %SPOTIFY_USER%</div>
+                <div class="spotify-active hidden">Inactive</div>
+            </div>
+        </div>
     </div>
     <div class="content">
         <a class="button button-spotify-account needs-wifi" href="spotify-account">Setup Spotify User Account</a>

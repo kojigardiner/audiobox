@@ -1,6 +1,7 @@
 /*** Includes ***/
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <DNSServer.h>
 #include <ESP32Servo.h>
 #include <ESPAsyncWebServer.h>
 #include <FastLED.h>
@@ -45,6 +46,8 @@ EventHandler eh;
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
 AsyncEventSource web_events("/events");
+DNSServer dns_server;  // used when we are in AP mode and need to active the captive portal
+bool ready_to_set_spotify_user = false;
 
 // Semaphores
 SemaphoreHandle_t mutex_leds;
@@ -129,16 +132,23 @@ void setup() {
 
     // CLI setup
     if (digitalRead(PIN_BUTTON_MODE) == LOW) {
+        start_web_server(WEB_SETUP);
+        bool led_state = HIGH;
+        while (true) {
+            if (ready_to_set_spotify_user) {
+                get_and_save_spotify_user_name();
+                ready_to_set_spotify_user = false;
+            }
+            digitalWrite(PIN_BUTTON_LED, led_state);  // blink the LED
+            led_state = !led_state;
+            delay(250);
+        }
+    }
+
+    if ((digitalRead(PIN_BUTTON_MODE) == LOW) && (digitalRead(PIN_BUTTON2_MODE) == LOW)) {
         start_cli();
         ESP.restart();
     }
-
-    // // web setup
-    // if (digitalRead(PIN_BUTTON2_MODE) == LOW) {
-    //     web_prefs(false);
-    //     while (true) {  // hang to debug
-    //     }
-    // }
 
     print("Loading preferences\n");
 
@@ -148,11 +158,19 @@ void setup() {
 
     // Wifi setup
     if (!connect_wifi()) {
-        print("Wifi could not connect! Power off and power on while holding down the main button to configure preferences.\n");
-        web_prefs(true);  // start in ap mode
+        print("Wifi could not connect! Entering AP mode, please connect to network %s\n", APP_NAME);
+        start_web_server(WEB_AP);  // start in ap mode
+
+        bool led_state = HIGH;
+        while (true) {
+            dns_server.processNextRequest();
+            digitalWrite(PIN_BUTTON_LED, led_state);  // blink the LED
+            led_state = !led_state;
+            delay(250);
+        }
     }
 
-    web_prefs(false);
+    start_web_server(WEB_CONTROL);
 
     // test_modes();
 
@@ -645,20 +663,23 @@ void task_spotify_code(void *parameter) {
                 event_t e = {.event_type = EVENT_SPOTIFY_UPDATED, {.sp_data = sp_data}};
                 eh.emit(e);  // set timeout to zero so loop will continue until display is updated
 
-                char web_str[CLI_MAX_CHARS];
-                sp.get_art_url(web_str);
                 web_events.send(sp_data.is_active ? "Active" : "Inactive", "spotify_active", millis());
-                web_events.send(web_str, "spotify_art_url", millis());
 
-                strncpy(web_str, "", CLI_MAX_CHARS);  // clear out the string
-                CRGBPalette16 curr_palette = lp.get_target_palette();
-                for (int i = 0; i < PALETTE_ENTRIES; i++) {
-                    int color_str_len = 16;
-                    char color_str[color_str_len];
-                    snprintf(color_str, color_str_len, "%d,%d,%d\n", curr_palette[i].r, curr_palette[i].g, curr_palette[i].b);
-                    strncat(web_str, color_str, color_str_len);
+                if (sp_data.is_active) {
+                    char web_str[CLI_MAX_CHARS];
+                    sp.get_art_url(web_str);
+                    web_events.send(web_str, "spotify_art_url", millis());
+
+                    strncpy(web_str, "", CLI_MAX_CHARS);  // clear out the string
+                    CRGBPalette16 curr_palette = lp.get_target_palette();
+                    for (int i = 0; i < PALETTE_ENTRIES; i++) {
+                        int color_str_len = 16;
+                        char color_str[color_str_len];
+                        snprintf(color_str, color_str_len, "%d,%d,%d\n", curr_palette[i].r, curr_palette[i].g, curr_palette[i].b);
+                        strncat(web_str, color_str, color_str_len);
+                    }
+                    web_events.send(web_str, "palette", millis());
                 }
-                web_events.send(web_str, "palette", millis());
             }
         } else {
             web_events.send("Not Connected", "wifi", millis());

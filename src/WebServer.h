@@ -1,6 +1,7 @@
-#ifndef WEB_SETUP_H_
-#define WEB_SETUP_H_
+#ifndef WEBSERVER_H_
+#define WEBSERVER_H_
 
+#include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
 
 #include "EventHandler.h"
@@ -9,10 +10,16 @@
 extern AsyncWebServer server;
 extern AsyncEventSource web_events;
 extern EventHandler eh;
+extern DNSServer dns_server;
+extern bool ready_to_set_spotify_user;  // flag to main thread
 
-void web_prefs(bool ap_mode);
-void web_prefs_end();
+enum server_mode_t {
+    WEB_CONTROL,
+    WEB_SETUP,
+    WEB_AP
+};
 
+void start_web_server(server_mode_t server_mode);
 void handle_wifi_test(AsyncWebServerRequest* request);
 void handle_exit(AsyncWebServerRequest* request);
 void handle_wifi_manual(AsyncWebServerRequest* request);
@@ -21,4 +28,4 @@ void handle_spotify_account(AsyncWebServerRequest* request);
 void handle_spotify_auth(AsyncWebServerRequest* request);
 void handle_change_mode(AsyncWebServerRequest* request);
 
-#endif  // WEB_SETUP_H_
+#endif  // WEBSERVER_H_

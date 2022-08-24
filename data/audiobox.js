@@ -3,6 +3,7 @@ let paletteMargin = 1;
 const ssidStatus = document.querySelector(".ssid-status");
 const spotifyActive = document.querySelector(".spotify-active");
 const albumArt = document.querySelector(".album-art");
+const album = document.querySelector(".album");
 updateWifiStatus();
 updateSpotifyStatus();
 createPalette(paletteSize);
@@ -42,12 +43,14 @@ if (!!window.EventSource) {
         if (e.data !== "") {
             const large_img_url = getLargeArtUrl(e.data);
             albumArt.setAttribute("src", large_img_url);
+            album.classList.remove("hidden");
         }
     }, false);
 
     source.addEventListener('palette', function (e) {
         console.log("palette", e.data);
         parsePalette(e.data);
+        album.classList.remove("hidden");
     }, false);
 }
 
@@ -100,6 +103,7 @@ function updateSpotifyStatus() {
             break;
         default:
             spotifyActive.style.backgroundColor = "gray";
+            album.classList.add("hidden");
             break;
     }
 }

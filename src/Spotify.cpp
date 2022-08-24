@@ -68,7 +68,8 @@ bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, cha
              "?client_id=%s"
              "&response_type=code"
              "&redirect_uri=%s"
-             "&scope=%s",
+             "&scope=%s"
+             "&show_dialog=true",  // force the user to confirm their identity or change accounts
              SPOTIFY_AUTH_URL, client_id, SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPE);
 
     http.begin(url);

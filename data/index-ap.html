@@ -5,15 +5,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css">
-    <title>Audiobox XL - Spotify (Client ID)</title>
+    <title>Audiobox XL Setup</title>
     <script src="audiobox.js" defer></script>
 </head>
 
 <body>
     <div class="header">
-        <a class="back" href="spotify.html">&lt; Spotify</a>
-        <div class="title">Dev ID</div>
-        <a class="forward hidden" href="#">&lt; Spotify</a>
+        <a class="back" href="#"></a>
+        <div class="title">Setup Menu</div>
+        <a class="forward" href="#"></a>
     </div>
     <div class="status">
         <div class="wifi">
@@ -30,17 +30,9 @@
         </div>
     </div>
     <div class="content">
-        <p>Go to the <a class="link" href="https://developer.spotify.com/dashboard/">Spotify Developer
-                Dashboard</a> to find the
-            app
-            client credentials.</p>
-        <form class="spotify" action="/spotify-client" method="POST">
-            <label for="client-id">Client ID</label>
-            <input type="text" id="client-id" name="client-id"><br>
-            <label for="client-secret">Client Secret</label>
-            <input type="text" id="client-secret" name="client-secret"><br>
-            <input type="submit" value="Submit">
-        </form>
+        <a class="button button-wifi" href="wifi.html">Setup WiFi</a>
+        <!-- <a class="button button-reset" href="#">Reset All</a> -->
+        <a class="button button-exit" href="exit">Reboot</a>
     </div>
     <div class="footer">
         <div class="text">Copyright © Koji Gardiner 2022</div>

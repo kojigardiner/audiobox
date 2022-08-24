@@ -42,6 +42,25 @@ String processor(const String& var) {
     return String();
 }
 
+class CaptiveRequestHandler : public AsyncWebHandler {
+   public:
+    CaptiveRequestHandler() {}
+    virtual ~CaptiveRequestHandler() {}
+
+    bool canHandle(AsyncWebServerRequest* request) {
+        // request->addInterestingHeader("ANY");
+        return true;
+    }
+
+    void handleRequest(AsyncWebServerRequest* request) {
+        // AsyncResponseStream* response = request->beginResponseStream("text/html");
+        // response->print("<!DOCTYPE html><html><head><title>Captive Portal</title></head><body>");
+        // response->printf("<p>For %s setup, please visit <a href='http://%s'>this link</a></p>", APP_NAME, WiFi.softAPIP().toString().c_str());
+        // response->print("</body></html>");
+        // request->send(response);
+    }
+};
+
 void handle_wifi_test(AsyncWebServerRequest* request) {
     connect_wifi(true);
 
@@ -146,7 +165,7 @@ void handle_spotify_auth(AsyncWebServerRequest* request) {
 
         if (p->name() == "code") {
             if (get_and_save_spotify_refresh_token(p->value().c_str())) {
-                get_and_save_spotify_user_name();
+                ready_to_set_spotify_user = true;  // flag to main thread
             }
         }
     }
@@ -163,7 +182,15 @@ void handle_change_mode(AsyncWebServerRequest* request) {
     request->send(SPIFFS, "/index.html", String(), false, processor);
 }
 
-void web_prefs(bool ap_mode) {
+void handle_toggle_art(AsyncWebServerRequest* request) {
+    button_event_t button_event = {.id = PIN_BUTTON2_MODE, .state = ButtonFSM::MOMENTARY_TRIGGERED};
+    event_t e = {.event_type = EVENT_BUTTON_PRESSED, {.button_info = button_event}};
+    eh.emit(e);
+
+    request->send(SPIFFS, "/index.html", String(), false, processor);
+}
+
+void start_web_server(server_mode_t server_mode) {
     // Filessystem setup
     print("Setting up filesystem\n");
     if (!SPIFFS.begin(true)) {
@@ -171,9 +198,7 @@ void web_prefs(bool ap_mode) {
         return;
     }
 
-    connect_wifi();  // kick off a wifi connection with the existing config if possible
-
-    if (ap_mode) {
+    if (server_mode == WEB_AP) {
         // Connect to Wi-Fi network with SSID and password
         print("Setting up AP mode\n");
         WiFi.mode(WIFI_AP_STA);  // set to ap/sta mode so that we can test WiFi STA access
@@ -181,8 +206,13 @@ void web_prefs(bool ap_mode) {
         // Setup AP with no password
         WiFi.softAP(APP_NAME, NULL);
         print("AP IP address: %s\n", WiFi.softAPIP().toString().c_str());
+
+        dns_server.start(53, "*", WiFi.softAPIP());
+    } else {
+        connect_wifi();  // kick off a wifi connection with the existing config if possible
     }
 
+    // server.addHandler(new CaptiveRequestHandler()).setFilter(ON_AP_FILTER);
     server.on("/exit", HTTP_GET, handle_exit);
     server.on("/wifi-manual", HTTP_POST, handle_wifi_manual);
     server.on("/wifi-test", HTTP_GET, handle_wifi_test);
@@ -190,11 +220,29 @@ void web_prefs(bool ap_mode) {
     server.on("/spotify-account", HTTP_GET, handle_spotify_account);
     server.on("/spotify-auth", HTTP_GET, handle_spotify_auth);
     server.on("/change-mode", HTTP_GET, handle_change_mode);
+    server.on("/toggle-art", HTTP_GET, handle_toggle_art);
 
     // Handle all other static page requests
-    server.serveStatic("/", SPIFFS, "/")
-        .setDefaultFile("index.html")
-        .setTemplateProcessor(processor);
+
+    switch (server_mode) {
+        case WEB_CONTROL:
+            server.serveStatic("/", SPIFFS, "/")
+                .setDefaultFile("index.html")
+                .setTemplateProcessor(processor);
+            break;
+        case WEB_SETUP:
+            server.serveStatic("/", SPIFFS, "/")
+                .setDefaultFile("index-setup.html")
+                .setTemplateProcessor(processor);
+        case WEB_AP:
+            server.serveStatic("/", SPIFFS, "/")
+                .setDefaultFile("index-ap.html")
+                .setTemplateProcessor(processor);
+        default:
+            server.serveStatic("/", SPIFFS, "/")
+                .setDefaultFile("index.html")
+                .setTemplateProcessor(processor);
+    }
 
     server.onNotFound([](AsyncWebServerRequest* request) {
         request->send(404);

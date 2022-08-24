@@ -19,7 +19,7 @@ body {
     align-items: center;
 }
 
-.invisible {
+.hidden {
     visibility: hidden;
 }
 
@@ -43,7 +43,7 @@ form {
     flex-direction: column;
     justify-content: space-around;
     gap: 15px;
-    margin: 10px 0px;
+    margin: 10px 10px;
 }
 
 .content .text {
@@ -55,16 +55,10 @@ form {
     justify-content: space-between;
     padding: 10px;
     border: 1px gray solid;
-    border-radius: 30px;
+    border-radius: 20px;
     gap: 10px;
-}
-
-.wifi,
-.spotify {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 4px;
+    text-decoration: none;
+    color: #f7ebec;
 }
 
 .wifi-detail,
@@ -86,6 +80,12 @@ form {
     border-radius: 100px;
 }
 
+.buttons {
+    display: flex;
+    justify-content: space-around;
+    gap: 15px;
+    margin: 10px 0px;
+}
 
 a.link {
     color: #f7ebec;
@@ -94,6 +94,7 @@ a.link {
 
 .button,
 input[type=submit] {
+    flex: 1;
     padding: 20px;
     border-radius: 8px;
     border-style: none;
