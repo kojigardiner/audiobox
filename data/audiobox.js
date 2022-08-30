@@ -4,9 +4,11 @@ const ssidStatus = document.querySelector(".ssid-status");
 const spotifyActive = document.querySelector(".spotify-active");
 const albumArt = document.querySelector(".album-art");
 const album = document.querySelector(".album");
+const buttons = document.querySelector(".buttons");
+const message = document.querySelector(".message");
+createPalette(paletteSize);
 updateWifiStatus();
 updateSpotifyStatus();
-createPalette(paletteSize);
 
 // Handle server sent events
 if (!!window.EventSource) {
@@ -91,6 +93,7 @@ function updateWifiStatus() {
                 element.style.color = "gray";
                 element.setAttribute("href", "#");
             });
+            changeControlVisibility(false);
             break;
     }
 }
@@ -100,10 +103,11 @@ function updateSpotifyStatus() {
     switch (spotifyActive.textContent.toLowerCase()) {
         case "active":
             spotifyActive.style.backgroundColor = "rgb(98, 199, 85)";
+            changeControlVisibility(true);
             break;
         default:
             spotifyActive.style.backgroundColor = "gray";
-            album.classList.add("hidden");
+            changeControlVisibility(false);
             break;
     }
 }
@@ -132,5 +136,17 @@ function parsePalette(paletteStr) {
 
     for (let i = 0; i < entries.length; i++) {
         entries.at(i).style.backgroundColor = colorStrArr.at(i);
+    }
+}
+
+function changeControlVisibility(turnOn) {
+    if (turnOn) {
+        buttons.classList.remove("hidden");
+        album.classList.remove("hidden");
+        message.classList.add("hidden");
+    } else {
+        buttons.classList.add("hidden");
+        album.classList.add("hidden");
+        message.classList.remove("hidden");
     }
 }
