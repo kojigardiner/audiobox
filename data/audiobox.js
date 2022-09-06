@@ -59,22 +59,24 @@ if (!!window.EventSource) {
 function createPalette(paletteSize) {
     const container = document.querySelector(".palette");
 
-    container.replaceChildren();    // clear the existing elements
+    if (container !== null) {
+        container.replaceChildren();    // clear the existing elements
 
-    // create the grid elements
-    for (let i = 0; i < paletteSize; i++) {
-        const divRow = document.createElement("div");
-        divRow.classList.add("paletteRow");
-        container.appendChild(divRow);
-        for (let j = 0; j < paletteSize; j++) {
-            const divElement = document.createElement("div");
-            divElement.classList.add(`entry${j}`);
-            divElement.classList.add("paletteEntry");
-            divElement.style.backgroundColor = "black";
-            divElement.style.width = `${albumArt.width / paletteSize}px`;
-            divElement.style.height = `${albumArt.width / paletteSize}px`;
-            divElement.style.margin = `${paletteMargin}px`;
-            divRow.appendChild(divElement);
+        // create the grid elements
+        for (let i = 0; i < paletteSize; i++) {
+            const divRow = document.createElement("div");
+            divRow.classList.add("paletteRow");
+            container.appendChild(divRow);
+            for (let j = 0; j < paletteSize; j++) {
+                const divElement = document.createElement("div");
+                divElement.classList.add(`entry${j}`);
+                divElement.classList.add("paletteEntry");
+                divElement.style.backgroundColor = "black";
+                divElement.style.width = `${albumArt.width / paletteSize}px`;
+                divElement.style.height = `${albumArt.width / paletteSize}px`;
+                divElement.style.margin = `${paletteMargin}px`;
+                divRow.appendChild(divElement);
+            }
         }
     }
 }
@@ -140,13 +142,15 @@ function parsePalette(paletteStr) {
 }
 
 function changeControlVisibility(turnOn) {
-    if (turnOn) {
-        buttons.classList.remove("hidden");
-        album.classList.remove("hidden");
-        message.classList.add("hidden");
-    } else {
-        buttons.classList.add("hidden");
-        album.classList.add("hidden");
-        message.classList.remove("hidden");
+    if (buttons !== null && album !== null && message !== null) {
+        if (turnOn) {
+            buttons.classList.remove("hidden");
+            album.classList.remove("hidden");
+            message.classList.add("hidden");
+        } else {
+            buttons.classList.add("hidden");
+            album.classList.add("hidden");
+            message.classList.remove("hidden");
+        }
     }
 }
