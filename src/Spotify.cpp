@@ -131,6 +131,14 @@ void Spotify::get_art_url(char *url) {
     strncpy(url, _album_art.url, CLI_MAX_CHARS);
 }
 
+void Spotify::get_album_name(char *album_name) {
+    strncpy(album_name, _album, CLI_MAX_CHARS);
+}
+
+void Spotify::get_artist_name(char *artist_name) {
+    strncpy(artist_name, _artists, CLI_MAX_CHARS);
+}
+
 // Indicates if Spotify is current running on the linked account
 bool Spotify::is_active() {
     return _is_active;

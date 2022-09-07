@@ -127,8 +127,16 @@ input[type=submit] {
     max-width: 300px;
 }
 
-.palette {
+.palette-container {
     display: flex;
+}
+
+.art-label,
+.palette-label {
+    font-size: small;
+    font-weight: lighter;
+    text-align: center;
+    padding: 5px;
 }
 
 .footer {

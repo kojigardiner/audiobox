@@ -78,6 +78,12 @@ class Spotify {
     // Get the url for the current album art
     void get_art_url(char *url);
 
+    // Get the current artist name
+    void get_artist_name(char *artist_name);
+
+    // Get the current album name
+    void get_album_name(char *album_name);
+
     // Returns a struct with public data
     public_data_t get_data();
 

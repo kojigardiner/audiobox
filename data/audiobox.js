@@ -1,14 +1,17 @@
 let paletteSize = 4;
 let paletteMargin = 1;
+const maxArtLabelLength = 36;
 const ssidStatus = document.querySelector(".ssid-status");
 const spotifyActive = document.querySelector(".spotify-active");
 const albumArt = document.querySelector(".album-art");
 const album = document.querySelector(".album");
+const artLabel = document.querySelector(".art-label");
 const buttons = document.querySelector(".buttons");
 const message = document.querySelector(".message");
 createPalette(paletteSize);
 updateWifiStatus();
 updateSpotifyStatus();
+// changeControlVisibility(true);
 
 // Handle server sent events
 if (!!window.EventSource) {
@@ -49,6 +52,19 @@ if (!!window.EventSource) {
         }
     }, false);
 
+    source.addEventListener('spotify_album_artist_name', function (e) {
+        console.log("spotify_album_artist_name", e.data);
+        if (e.data !== "") {
+            const len = e.data.length;
+            let albumArtist = e.data.split(" - ");
+
+            if (len > maxArtLabelLength) {
+                albumArtist[0] = albumArtist[0].slice(0, maxArtLabelLength - len).concat("...");
+            }
+            artLabel.textContent = albumArtist.join(" by ");
+        }
+    }, false);
+
     source.addEventListener('palette', function (e) {
         console.log("palette", e.data);
         parsePalette(e.data);
@@ -57,7 +73,7 @@ if (!!window.EventSource) {
 }
 
 function createPalette(paletteSize) {
-    const container = document.querySelector(".palette");
+    const container = document.querySelector(".palette-container");
 
     if (container !== null) {
         container.replaceChildren();    // clear the existing elements

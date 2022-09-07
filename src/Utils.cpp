@@ -1,5 +1,6 @@
 #include "Utils.h"
 
+#include <ESPmDNS.h>
 #include <WiFi.h>
 
 #include "Constants.h"
@@ -72,6 +73,10 @@ bool connect_wifi(bool async) {
                     return false;
                 }
             }
+        }
+
+        if (!MDNS.begin(MDNS_DOMAIN_NAME)) {
+            print("Error setting up MDNS responder\n");
         }
     }
 

@@ -220,7 +220,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_spotify_code,  // Function to implement the task
         "task_spotify",     // Name of the task
-        12000,              // Stack size in bytes
+        13000,              // Stack size in bytes
         q_spotify,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_spotify,      // Task handle
@@ -666,19 +666,27 @@ void task_spotify_code(void *parameter) {
                 web_events.send(sp_data.is_active ? "Active" : "Inactive", "spotify_active", millis());
 
                 if (sp_data.is_active) {
-                    char web_str[CLI_MAX_CHARS];
-                    sp.get_art_url(web_str);
-                    web_events.send(web_str, "spotify_art_url", millis());
+                    char web_str1[CLI_MAX_CHARS];
+                    char web_str2[CLI_MAX_CHARS];
+                    char web_str3[CLI_MAX_CHARS];
 
-                    strncpy(web_str, "", CLI_MAX_CHARS);  // clear out the string
+                    sp.get_art_url(web_str1);
+                    web_events.send(web_str1, "spotify_art_url", millis());
+
+                    sp.get_album_name(web_str1);
+                    sp.get_artist_name(web_str2);
+                    snprintf(web_str3, CLI_MAX_CHARS, "%s - %s", web_str1, web_str2);
+                    web_events.send(web_str3, "spotify_album_artist_name", millis());
+
+                    strncpy(web_str1, "", CLI_MAX_CHARS);  // clear out the string
                     CRGBPalette16 curr_palette = lp.get_target_palette();
                     for (int i = 0; i < PALETTE_ENTRIES; i++) {
                         int color_str_len = 16;
                         char color_str[color_str_len];
                         snprintf(color_str, color_str_len, "%d,%d,%d\n", curr_palette[i].r, curr_palette[i].g, curr_palette[i].b);
-                        strncat(web_str, color_str, color_str_len);
+                        strncat(web_str1, color_str, color_str_len);
                     }
-                    web_events.send(web_str, "palette", millis());
+                    web_events.send(web_str1, "palette", millis());
                 }
             }
         } else {
