@@ -1,5 +1,7 @@
-let paletteSize = 4;
-let paletteMargin = 1;
+const paletteSize = 4;
+const paletteMargin = 1;
+const maxArtWidth = 300;
+
 const maxArtLabelLength = 36;
 const ssidStatus = document.querySelector(".ssid-status");
 const spotifyActive = document.querySelector(".spotify-active");
@@ -8,7 +10,9 @@ const album = document.querySelector(".album");
 const artLabel = document.querySelector(".art-label");
 const buttons = document.querySelector(".buttons");
 const message = document.querySelector(".message");
+
 createPalette(paletteSize);
+
 updateWifiStatus();
 updateSpotifyStatus();
 // changeControlVisibility(true);
@@ -76,6 +80,7 @@ function createPalette(paletteSize) {
     const container = document.querySelector(".palette-container");
 
     if (container !== null) {
+        albumArt.setAttribute("max-width", maxArtWidth + "px");
         container.replaceChildren();    // clear the existing elements
 
         // create the grid elements
@@ -88,8 +93,8 @@ function createPalette(paletteSize) {
                 divElement.classList.add(`entry${j}`);
                 divElement.classList.add("paletteEntry");
                 divElement.style.backgroundColor = "black";
-                divElement.style.width = `${albumArt.width / paletteSize}px`;
-                divElement.style.height = `${albumArt.width / paletteSize}px`;
+                divElement.style.width = `${maxArtWidth / paletteSize - paletteMargin}px`;
+                divElement.style.height = `${maxArtWidth / paletteSize - paletteMargin}px`;
                 divElement.style.margin = `${paletteMargin}px`;
                 divRow.appendChild(divElement);
             }
