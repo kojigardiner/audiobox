@@ -14,6 +14,8 @@ enum EventType : uint32_t {
     EVENT_SPOTIFY_UPDATED = 1 << 3,
     EVENT_MODE_CHANGED = 1 << 4,
     EVENT_BUTTON_PRESSED = 1 << 5,
+    EVENT_POWER_OFF = 1 << 6,
+    EVENT_REBOOT = 1 << 7,
     EVENT_ALL = 0xFFFF,
 };
 
@@ -44,6 +46,7 @@ class EventHandler {
     EventHandler(){};
     EventHandler(QueueHandle_t q_events);
     void emit(event_t e);                                                                     // send an event to the event queue
+    void emit_from_isr(event_t e);                                                            // send an event to the event queue from an ISR
     void subscribe(TaskHandle_t *t, EventType et);                                            // subscribe a task to an event type
     void unsubscribe(TaskHandle_t *t, EventType et);                                          // unsubscribe a task from an event type
     bool is_subscribed(TaskHandle_t *t, EventType et);                                        // register a task with the event handler

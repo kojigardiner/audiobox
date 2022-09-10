@@ -131,8 +131,8 @@ void set_spotify_client_id() {
     prefs.end();
 }
 
-void set_spotify_account() {
-    char refresh_token[CLI_MAX_CHARS];
+bool get_spotify_auth_url(char *auth_url) {
+    bool ret = false;
     char client_id[CLI_MAX_CHARS];
     char auth_b64[CLI_MAX_CHARS];
 
@@ -142,21 +142,84 @@ void set_spotify_account() {
     if (!prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY, client_id, CLI_MAX_CHARS) ||
         !prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64, CLI_MAX_CHARS)) {
         print("Set Spotify client ID first!\n");
-        prefs.end();
-        return;
+    } else if (connect_wifi() && Spotify::request_user_auth(client_id, auth_b64, auth_url)) {
+        ret = true;
     }
 
-    if (!connect_wifi()) {
-        prefs.end();
-        return;
-    }
+    prefs.end();
+    return ret;
+}
 
-    if (Spotify::request_user_auth(client_id, auth_b64, refresh_token)) {
+bool get_and_save_spotify_refresh_token(const char *auth_code) {
+    bool ret = false;
+    char auth_b64[CLI_MAX_CHARS];
+    char refresh_token[CLI_MAX_CHARS];
+
+    Preferences prefs;
+    prefs.begin(APP_NAME, false);
+
+    if (!prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64, CLI_MAX_CHARS)) {
+        print("Set Spotify client ID first!\n");
+    } else if (connect_wifi() && Spotify::get_refresh_token(auth_b64, auth_code, refresh_token)) {
         set_pref(&prefs, PREFS_SPOTIFY_REFRESH_TOKEN_KEY, refresh_token);
+        ret = true;
+    }
+
+    prefs.end();
+    return ret;
+}
+
+void set_spotify_account() {
+    char auth_url[HTTP_MAX_CHARS];
+    char auth_code[CLI_MAX_CHARS];
+
+    if (get_spotify_auth_url(auth_url)) {
+        print("\nLaunch the following URL in your browser to authorize access: ");
+        print("%s\n", auth_url);
+        print("\nAfter granting access, you will be redirected to a webpage.\n");
+
+        // get the authorization code from the user
+        print("\nCopy and paste the characters after \"code: \" on the webpage. Do not include the quotation (\") marks: ");
+        get_input(auth_code);
+
+        if (get_and_save_spotify_refresh_token(auth_code)) {
+            print("Spotify credentials successfully set, attempting to login\n");
+            if (get_and_save_spotify_user_name()) {
+                print("Success!\n");
+            }
+        }
     } else {
         print("Request user authorization failed\n");
     }
+}
+
+bool get_and_save_spotify_user_name() {
+    bool ret = false;
+    char client_id[CLI_MAX_CHARS];
+    char auth_b64[CLI_MAX_CHARS];
+    char refresh_token[CLI_MAX_CHARS];
+    char user_name[CLI_MAX_CHARS];
+
+    Preferences prefs;
+    prefs.begin(APP_NAME, false);
+
+    if (!prefs.getString(PREFS_SPOTIFY_CLIENT_ID_KEY, client_id, CLI_MAX_CHARS) ||
+        !prefs.getString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64, CLI_MAX_CHARS) ||
+        !prefs.getString(PREFS_SPOTIFY_REFRESH_TOKEN_KEY, refresh_token, CLI_MAX_CHARS)) {
+        print("Failed to get Spotify preferences!\n");
+    } else {
+        Spotify *sp = new Spotify(client_id, auth_b64, refresh_token);  // create on the heap to avoid stack size issues
+        sp->update();
+        sp->get_user_name(user_name);
+        if (strlen(user_name) > 0) {
+            set_pref(&prefs, PREFS_SPOTIFY_USER_NAME_KEY, user_name);
+            ret = true;
+        }
+        delete sp;
+    }
+
     prefs.end();
+    return ret;
 }
 
 void clear_prefs() {

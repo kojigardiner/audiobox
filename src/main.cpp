@@ -1,7 +1,9 @@
 /*** Includes ***/
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <DNSServer.h>
 #include <ESP32Servo.h>
+#include <ESPAsyncWebServer.h>
 #include <FastLED.h>
 #include <Preferences.h>
 #include <SPIFFS.h>
@@ -19,6 +21,7 @@
 #include "ModeSequence.h"
 #include "Spotify.h"
 #include "Utils.h"
+#include "WebServer.h"
 
 /*** Function Prototypes ***/
 
@@ -40,15 +43,18 @@ void test_modes();
 // EventHandler
 EventHandler eh;
 
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
+AsyncEventSource web_events("/events");
+DNSServer dns_server;  // used when we are in AP mode and need to active the captive portal
+bool ready_to_set_spotify_user = false;
+
 // Semaphores
 SemaphoreHandle_t mutex_leds;
 
 // Task & Queue Handles
 TaskHandle_t task_eventhandler;
 QueueHandle_t q_events;
-
-TaskHandle_t task_server;
-QueueHandle_t q_server;
 
 TaskHandle_t task_buttons;
 QueueHandle_t q_buttons;
@@ -76,7 +82,6 @@ void task_audio_code(void *parameter);
 void task_display_code(void *parameter);
 void task_servo_code(void *parameter);
 void task_mode_code(void *parameter);
-void task_server_code(void *parameter);
 
 typedef struct AlbumArt {
     uint16_t full_art_rgb565[64][64] = {{0}};     // full resolution RGB565 artwork
@@ -86,6 +91,11 @@ typedef struct AlbumArt {
 AlbumArt_t album_art;
 
 LEDPanel lp = LEDPanel(GRID_W, GRID_H, NUM_LEDS, PIN_LED_CONTROL, MAX_BRIGHT, true, LEDPanel::BOTTOM_LEFT);
+
+// ISRs
+void IRAM_ATTR deep_sleep_start_isr() {
+    esp_deep_sleep_start();  // go to sleep if switch is high
+}
 
 void setup() {
     pinMode(PIN_LED_STATUS, OUTPUT);
@@ -99,17 +109,45 @@ void setup() {
 
     esp_sleep_enable_ext0_wakeup(PIN_POWER_SWITCH, LOW);  // setup wake from sleep
     if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
-        print("Switch is high, going to sleep\n");
-        esp_deep_sleep_start();  // go to sleep if switch is high
+        print("Power switch is high, going to sleep");
+        esp_deep_sleep_start();  // go to sleep immediately if switch is high
     }
+    attachInterrupt(PIN_POWER_SWITCH, deep_sleep_start_isr, HIGH);  // attach interrupt to start sleep immediately on power toggle during setup
 
     print("Initial safety delay\n");
     delay(500);  // power-up safety delay to avoid brown out
 
+    disableCore0WDT();  // hack to avoid various kernel panics
+
+    // Filessystem setup
+    print("Setting up filesystem\n");
+    if (!SPIFFS.begin(true)) {
+        print("An Error has occurred while mounting SPIFFS\n");
+        return;
+    }
+
     // Drop into debug CLI if button is depressed
     pinMode(PIN_BUTTON_MODE, INPUT_PULLUP);
+    pinMode(PIN_BUTTON2_MODE, INPUT_PULLUP);
+
+    // CLI setup
     if (digitalRead(PIN_BUTTON_MODE) == LOW) {
+        start_web_server(WEB_SETUP);
+        bool led_state = HIGH;
+        while (true) {
+            if (ready_to_set_spotify_user) {
+                get_and_save_spotify_user_name();
+                ready_to_set_spotify_user = false;
+            }
+            digitalWrite(PIN_BUTTON_LED, led_state);  // blink the LED
+            led_state = !led_state;
+            delay(250);
+        }
+    }
+
+    if ((digitalRead(PIN_BUTTON_MODE) == LOW) && (digitalRead(PIN_BUTTON2_MODE) == LOW)) {
         start_cli();
+        ESP.restart();
     }
 
     print("Loading preferences\n");
@@ -120,17 +158,21 @@ void setup() {
 
     // Wifi setup
     if (!connect_wifi()) {
-        print("Wifi could not connect! Power off and power on while holding down the main button to configure preferences.\n");
+        print("Wifi could not connect! Entering AP mode, please connect to network %s\n", APP_NAME);
+        start_web_server(WEB_AP);  // start in ap mode
+
+        bool led_state = HIGH;
+        while (true) {
+            dns_server.processNextRequest();
+            digitalWrite(PIN_BUTTON_LED, led_state);  // blink the LED
+            led_state = !led_state;
+            delay(250);
+        }
     }
+
+    start_web_server(WEB_CONTROL);
 
     // test_modes();
-
-    // Filessystem setup
-    print("Setting up filesystem\n");
-    if (!SPIFFS.begin(true)) {
-        print("An Error has occurred while mounting SPIFFS\n");
-        return;
-    }
 
     // LED Setup
     print("Setting up LEDs\n");
@@ -140,6 +182,7 @@ void setup() {
 
     // Turn on button LED to indicate setup is complete
     digitalWrite(PIN_BUTTON_LED, HIGH);
+    detachInterrupt(PIN_POWER_SWITCH);  // detach the power down interrupt we had during the setup phase
 
     // Task setup
     mutex_leds = xSemaphoreCreateMutex();
@@ -151,8 +194,6 @@ void setup() {
     // q_mode = xQueueCreate(1, sizeof(Modes_t));
     // q_audio_done = xQueueCreate(1, sizeof(uint8_t));
     // q_event = xQueueCreate(10, sizeof(event_t));
-
-    disableCore0WDT();  // hack to avoid various kernel panics
 
     // setup event handler
     q_events = xQueueCreate(MAX_EVENTHANDLER_EVENTS, sizeof(event_t));
@@ -174,15 +215,12 @@ void setup() {
     eh.register_task(&task_servo, q_servo, EVENT_START | EVENT_SERVO_POS_CHANGED | EVENT_MODE_CHANGED);
 
     q_mode = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_mode, q_mode, EVENT_START | EVENT_BUTTON_PRESSED | EVENT_SPOTIFY_UPDATED);
-
-    q_server = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_server, q_server, EVENT_NONE);
+    eh.register_task(&task_mode, q_mode, EVENT_START | EVENT_BUTTON_PRESSED | EVENT_SPOTIFY_UPDATED | EVENT_POWER_OFF | EVENT_REBOOT);
 
     xTaskCreatePinnedToCore(
         task_spotify_code,  // Function to implement the task
         "task_spotify",     // Name of the task
-        10000,              // Stack size in words
+        13000,              // Stack size in bytes
         q_spotify,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_spotify,      // Task handle
@@ -192,7 +230,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_display_code,  // Function to implement the task
         "task_display",     // Name of the task
-        10000,              // Stack size in words
+        2000,               // Stack size in bytes
         q_display,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_display,      // Task handle
@@ -202,7 +240,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_buttons_code,  // Function to implement the task
         "task_buttons",     // Name of the task
-        5000,               // Stack size in words
+        2000,               // Stack size in bytes
         q_buttons,          // Task input parameter
         1,                  // Priority of the task (don't use 0!)
         &task_buttons,      // Task handle
@@ -212,7 +250,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_mode_code,  // Function to implement the task
         "task_mode",     // Name of the task
-        5000,            // Stack size in words
+        3000,            // Stack size in bytes
         q_mode,          // Task input parameter
         1,               // Priority of the task (don't use 0!)
         &task_mode,      // Task handle
@@ -222,7 +260,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_audio_code,  // Function to implement the task
         "task_audio",     // Name of the task
-        30000,            // Stack size in words
+        25000,            // Stack size in bytes
         q_audio,          // Task input parameter
         1,                // Priority of the task (don't use 0!)
         &task_audio,      // Task handle
@@ -232,28 +270,18 @@ void setup() {
     xTaskCreatePinnedToCore(
         task_servo_code,  // Function to implement the task
         "task_servo",     // Name of the task
-        2000,             // Stack size in words
+        2500,             // Stack size in bytes
         q_servo,          // Task input parameter
         1,                // Priority of the task (don't use 0!)
         &task_servo,      // Task handle
         1                 // Pinned core
     );
 
-    xTaskCreatePinnedToCore(
-        task_server_code,  // Function to implement the task
-        "task_server",     // Name of the task
-        2000,              // Stack size in words
-        q_server,          // Task input parameter
-        1,                 // Priority of the task (don't use 0!)
-        &task_server,      // Task handle
-        0                  // Pinned core - 0 is the same core as WiFi
-    );
-
     // Setup eventhandler task last
     xTaskCreatePinnedToCore(
         task_eventhandler_code,  // Function to implement the task
         "task_eventhandler",     // Name of the task
-        2000,                    // Stack size in words
+        2500,                    // Stack size in bytes
         NULL,                    // Task input parameter
         1,                       // Priority of the task (don't use 0!)
         &task_eventhandler,      // Task handle
@@ -271,6 +299,15 @@ void task_eventhandler_code(void *parameter) {
         xQueueReceive(q_events, &e, portMAX_DELAY);
         // print("Received event, %d\n", e.event_type);
         eh.process(e);
+
+        // print("task memory: %d,%d,%d,%d,%d,%d,%d\n",
+        //       uxTaskGetStackHighWaterMark(task_eventhandler),
+        //       uxTaskGetStackHighWaterMark(task_buttons),
+        //       uxTaskGetStackHighWaterMark(task_spotify),
+        //       uxTaskGetStackHighWaterMark(task_audio),
+        //       uxTaskGetStackHighWaterMark(task_display),
+        //       uxTaskGetStackHighWaterMark(task_servo),
+        //       uxTaskGetStackHighWaterMark(task_mode));
     }
 }
 
@@ -353,11 +390,10 @@ void task_display_code(void *parameter) {
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = (1000.0 / FPS) / portTICK_RATE_MS;
 
-    ButtonFSM::button_fsm_state_t button_state;
     Spotify::public_data_t sp_data;
     BaseType_t q_return;
     double percent_complete = 0;
-    int counter = 0;
+    // int counter = 0;
 
     curr_mode_t curr_mode;
 
@@ -366,7 +402,7 @@ void task_display_code(void *parameter) {
 
     QueueHandle_t q = (QueueHandle_t)parameter;  // queue for events
     event_t received_event = {};                 // event to be received
-    event_t e = {};
+    // event_t e = {};
 
     q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
     if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
@@ -442,7 +478,7 @@ void task_display_code(void *parameter) {
             }
             case MODE_MAIN_IMAGE:
                 xSemaphoreTake(mutex_leds, portMAX_DELAY);
-                char rcvd[CLI_MAX_CHARS];
+                // char rcvd[CLI_MAX_CHARS];
                 const char *filepath = "/image.jpg";
 
                 // print("Enter url to jpg image: \n");
@@ -471,8 +507,8 @@ void task_audio_code(void *parameter) {
     print("task_audio_code running on core ");
     print("%d\n", xPortGetCoreID());
 
-    TickType_t xLastWakeTime;
-    const TickType_t xFrequency = ((FFT_SAMPLES / 2.0) / I2S_SAMPLE_RATE * 1000) / portTICK_RATE_MS;
+    // TickType_t xLastWakeTime;
+    // const TickType_t xFrequency = ((FFT_SAMPLES / 2.0) / I2S_SAMPLE_RATE * 1000) / portTICK_RATE_MS;
 
     AudioProcessor ap = AudioProcessor(false, false, true, true);
 
@@ -500,7 +536,7 @@ void task_audio_code(void *parameter) {
     }
 
     // Initialise the xLastWakeTime variable with the current time.
-    xLastWakeTime = xTaskGetTickCount();
+    // xLastWakeTime = xTaskGetTickCount();
 
     int last_audio_mode = -1;
     for (;;) {
@@ -616,16 +652,45 @@ void task_spotify_code(void *parameter) {
             curr_mode = received_event.mode;
         }
         if ((WiFi.status() == WL_CONNECTED)) {
+            web_events.send("Connected", "wifi", millis());
             if (curr_mode.main.id() != MODE_MAIN_IMAGE) {  // only run spotify loop if we are not in image download mode; otherwise the https code will
                 sp.update();
                 Spotify::public_data_t sp_data = sp.get_data();
                 if (sp_data.art_changed && sp_data.is_active) {  // only update art if spotify is active
                     decode_art(sp_data.art_data, sp_data.art_num_bytes);
                 }
+
                 event_t e = {.event_type = EVENT_SPOTIFY_UPDATED, {.sp_data = sp_data}};
                 eh.emit(e);  // set timeout to zero so loop will continue until display is updated
+
+                web_events.send(sp_data.is_active ? "Active" : "Inactive", "spotify_active", millis());
+
+                if (sp_data.is_active) {
+                    char web_str1[CLI_MAX_CHARS];
+                    char web_str2[CLI_MAX_CHARS];
+                    char web_str3[CLI_MAX_CHARS];
+
+                    sp.get_art_url(web_str1);
+                    web_events.send(web_str1, "spotify_art_url", millis());
+
+                    sp.get_album_name(web_str1);
+                    sp.get_artist_name(web_str2);
+                    snprintf(web_str3, CLI_MAX_CHARS, "%s - %s", web_str1, web_str2);
+                    web_events.send(web_str3, "spotify_album_artist_name", millis());
+
+                    strncpy(web_str1, "", CLI_MAX_CHARS);  // clear out the string
+                    CRGBPalette16 curr_palette = lp.get_target_palette();
+                    for (int i = 0; i < PALETTE_ENTRIES; i++) {
+                        int color_str_len = 16;
+                        char color_str[color_str_len];
+                        snprintf(color_str, color_str_len, "%d,%d,%d\n", curr_palette[i].r, curr_palette[i].g, curr_palette[i].b);
+                        strncat(web_str1, color_str, color_str_len);
+                    }
+                    web_events.send(web_str1, "palette", millis());
+                }
             }
         } else {
+            web_events.send("Not Connected", "wifi", millis());
             print("Error: WiFi not connected! status = %d\n", WiFi.status());
         }
         vTaskDelay(SPOTIFY_CYCLE_TIME_MS / portTICK_RATE_MS);
@@ -647,9 +712,9 @@ void task_mode_code(void *parameter) {
     // Mode(MODE_MAIN_IMAGE, SERVO_POS_ART, DURATION_MS_AUDIO)};
 
     Mode ART_SUB_MODES_LIST[] = {
-        Mode(MODE_ART_WITHOUT_ELAPSED, SERVO_POS_ART),
-        Mode(MODE_ART_WITH_ELAPSED, SERVO_POS_ART),
-        Mode(MODE_ART_WITH_PALETTE, SERVO_POS_ART)};
+        Mode(MODE_ART_WITHOUT_ELAPSED, SERVO_POS_ART)};  //,
+    //    Mode(MODE_ART_WITH_ELAPSED, SERVO_POS_ART),
+    //    Mode(MODE_ART_WITH_PALETTE, SERVO_POS_ART)};
 
     Mode AUDIO_SUB_MODES_LIST[] = {
         Mode(MODE_AUDIO_NOISE, SERVO_POS_NOISE),
@@ -686,24 +751,47 @@ void task_mode_code(void *parameter) {
     for (;;) {
         mode_changed = false;
 
-        // Check for power off
+        // check state of power switch
         if (digitalRead(PIN_POWER_SWITCH) == HIGH) {
-            // we want to park the display at the SERVO_POS_NOISE, which is the start position
-            e = {.event_type = EVENT_SERVO_POS_CHANGED, {.servo_pos = SERVO_POS_NOISE}};
+            event_t e = {.event_type = EVENT_POWER_OFF};
             eh.emit(e);
-
-            xSemaphoreTake(mutex_leds, portMAX_DELAY);
-
-            int servo_pos_delta = abs(curr_mode.sub.get_servo_pos() - SERVO_POS_NOISE);
-            vTaskDelay((servo_pos_delta * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
-            FastLED.clear(true);                                                     // in case display got activated
-            print("Switch is high, going to sleep\n");
-            esp_deep_sleep_start();
         }
 
         q_return = xQueueReceive(q, &received_event, 0);  // get any updates
         if (q_return == pdTRUE) {
             switch (received_event.event_type) {
+                case EVENT_POWER_OFF:
+                case EVENT_REBOOT: {
+                    // receive power down event and process it
+
+                    print("Power event received, parking servo\n");
+                    // we want to park the display at the SERVO_POS_NOISE, which is the start position
+                    e = {.event_type = EVENT_SERVO_POS_CHANGED, {.servo_pos = SERVO_POS_NOISE}};
+                    eh.emit(e);
+
+                    xSemaphoreTake(mutex_leds, portMAX_DELAY);
+                    int servo_pos_delta = abs(curr_mode.sub.get_servo_pos() - SERVO_POS_NOISE);
+                    vTaskDelay((servo_pos_delta * SERVO_CYCLE_TIME_MS) / portTICK_RATE_MS);  // wait for servo move
+
+                    print("Clearing display\n");
+                    FastLED.clear(true);  // in case display got activated
+
+                    print("Unmounting filesystem\n");
+                    SPIFFS.end();
+
+                    print("Disconnecting web server and wifi\n");
+                    server.end();
+                    WiFi.disconnect();
+
+                    if (received_event.event_type == EVENT_POWER_OFF) {
+                        print("Going to sleep\n");
+                        esp_deep_sleep_start();
+                    } else {
+                        print("Rebooting\n");
+                        ESP.restart();
+                    }
+                    break;
+                }
                 case EVENT_SPOTIFY_UPDATED:
                     sp_data = received_event.sp_data;
                     if (sp_data.art_changed || !sp_data.is_active) {
@@ -937,114 +1025,6 @@ void display_full_art(uint8_t offset_row, uint8_t offset_col) {
             }
         }
     }
-}
-
-void task_server_code(void *parameter) {
-    print("task_server_code running on core ");
-    print("%d\n", xPortGetCoreID());
-
-    BaseType_t q_return;
-    QueueHandle_t q = (QueueHandle_t)parameter;
-    event_t received_event = {};
-
-    WiFiServer server(80);
-
-    // Variable to store the HTTP request
-    String header;
-
-    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
-    if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
-        print("Starting task\n");
-    }
-
-    // Current time
-    unsigned long currentTime = millis();
-    // Previous time
-    unsigned long previousTime = 0;
-    // Define timeout time in milliseconds (example: 2000ms = 2s)
-    const long timeoutTime = 2000;
-
-    print("local ip: %s\n", WiFi.localIP().toString().c_str());
-    server.begin();
-
-    for (;;) {
-        WiFiClient client = server.available();  // Listen for incoming clients
-
-        if (client) {  // If a new client connects,
-            currentTime = millis();
-            previousTime = currentTime;
-            Serial.println("New Client.");                                             // print a message out in the serial port
-            String currentLine = "";                                                   // make a String to hold incoming data from the client
-            while (client.connected() && currentTime - previousTime <= timeoutTime) {  // loop while the client's connected
-                currentTime = millis();
-                if (client.available()) {    // if there's bytes to read from the client,
-                    char c = client.read();  // read a byte, then
-                    Serial.write(c);         // print it out the serial monitor
-                    header += c;
-                    if (c == '\n') {  // if the byte is a newline character
-                        // if the current line is blank, you got two newline characters in a row.
-                        // that's the end of the client HTTP request, so send a response:
-                        if (currentLine.length() == 0) {
-                            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-                            // and a content-type so the client knows what's coming, then a blank line:
-                            client.println("HTTP/1.1 200 OK");
-                            client.println("Content-type:text/html");
-                            client.println("Connection: close");
-                            client.println();
-
-                            // turns the GPIOs on and off
-                            if (header.indexOf("GET /button1/momentary") >= 0) {
-                                Serial.println("Button 1, momentary press");
-                                button_event_t button_event = {.id = PIN_BUTTON_MODE, .state = ButtonFSM::MOMENTARY_TRIGGERED};
-                                event_t e = {.event_type = EVENT_BUTTON_PRESSED, {.button_info = button_event}};
-                                eh.emit(e);
-                            } else if (header.indexOf("GET /button2/momentary") >= 0) {
-                                Serial.println("Button 2, momentary press");
-                                button_event_t button_event = {.id = PIN_BUTTON2_MODE, .state = ButtonFSM::MOMENTARY_TRIGGERED};
-                                event_t e = {.event_type = EVENT_BUTTON_PRESSED, {.button_info = button_event}};
-                                eh.emit(e);
-                            }
-
-                            // Display the HTML web page
-                            client.println("<!DOCTYPE html><html>");
-                            client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-                            client.println("<link rel=\"icon\" href=\"data:,\">");
-                            // CSS to style the on/off buttons
-                            // Feel free to change the background-color and font-size attributes to fit your preferences
-                            client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
-                            client.println(".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px;");
-                            client.println("text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}");
-                            client.println(".button2 {background-color: #555555;}</style></head>");
-
-                            // Web Page Heading
-                            client.println("<body><h1>Audiobox Control</h1>");
-
-                            client.println("<p><a href=\"/button1/momentary\"><button class=\"button\">Button 1</button></a></p>");
-                            client.println("<p><a href=\"/button2/momentary\"><button class=\"button\">Button 2</button></a></p>");
-                            client.println("</body></html>");
-
-                            // The HTTP response ends with another blank line
-                            client.println();
-                            // Break out of the while loop
-                            break;
-                        } else {  // if you got a newline, then clear currentLine
-                            currentLine = "";
-                        }
-                    } else if (c != '\r') {  // if you got anything else but a carriage return character,
-                        currentLine += c;    // add it to the end of the currentLine
-                    }
-                }
-            }
-            // Clear the header variable
-            header = "";
-            // Close the connection
-            client.stop();
-            Serial.println("Client disconnected.");
-            Serial.println("");
-        }
-        vTaskDelay(1000 / portTICK_RATE_MS);  // added to avoid starving other tasks
-    }
-    vTaskDelete(NULL);
 }
 
 bool copy_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {

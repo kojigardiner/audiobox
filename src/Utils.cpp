@@ -1,5 +1,6 @@
 #include "Utils.h"
 
+#include <ESPmDNS.h>
 #include <WiFi.h>
 
 #include "Constants.h"
@@ -29,9 +30,10 @@ bool check_prefs() {
 }
 
 // Connect to wifi network
-bool connect_wifi() {
+// Passing an argument of async = true will cause the function to return immediately and not wait
+// for connection to be established
+bool connect_wifi(bool async) {
     unsigned long start_ms;
-    bool ret = false;
 
     if (WiFi.status() != WL_CONNECTED) {
         // get wifi network info from prefs
@@ -48,30 +50,43 @@ bool connect_wifi() {
 
         // WiFi Setup
         print("Wifi connecting to %s", wifi_ssid);
-        WiFi.mode(WIFI_STA);
-        WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
+
+        // Only set a new mode if we are not already operating
+        // This allows connect_wifi() to be called when in soft AP mode
+        if (WiFi.getMode() == WIFI_MODE_NULL) WiFi.mode(WIFI_STA);
+
+        // WiFi.config(IPAddress(WIFI_LOCAL_IP), IPAddress(WIFI_GATEWAY), IPAddress(WIFI_SUBNET), IPAddress(WIFI_DNS1), IPAddress(WIFI_DNS2));
+        WiFi.config(IPADDR_NONE, IPADDR_NONE, IPADDR_NONE, IPADDR_NONE);
         WiFi.setHostname(APP_NAME);
         WiFi.begin(wifi_ssid, wifi_pass);
 
         bool led_state = HIGH;
-        start_ms = millis();
-        while (WiFi.status() != WL_CONNECTED) {
-            digitalWrite(PIN_BUTTON_LED, led_state);  // blink the LED
-            led_state = !led_state;
-            Serial.print(".");
-            delay(500);
-            if (millis() - start_ms > WIFI_TIMEOUT_MS) {
-                print("connection timed out\n");
-                return false;
+        if (!async) {
+            start_ms = millis();
+            while (WiFi.status() != WL_CONNECTED) {
+                digitalWrite(PIN_BUTTON_LED, led_state);  // blink the LED
+                led_state = !led_state;
+                Serial.print(".");
+                delay(500);
+                if (millis() - start_ms > WIFI_TIMEOUT_MS) {
+                    print("connection timed out\n");
+                    return false;
+                }
             }
+        }
+
+        if (!MDNS.begin(MDNS_DOMAIN_NAME)) {
+            print("Error setting up MDNS responder\n");
         }
     }
 
-    print("connected\n");
-    print("IP: %s\n", WiFi.localIP().toString().c_str());
-    print("RSSI: %d\n", WiFi.RSSI());
-
-    return true;
+    if (WiFi.status() == WL_CONNECTED) {
+        print("connected\n");
+        print("IP: %s\n", WiFi.localIP().toString().c_str());
+        print("RSSI: %d\n", WiFi.RSSI());
+        return true;
+    }
+    return false;
 }
 
 // Set a value in preference. Pass an optional "value" key to set that value, otherwise prompt the user
@@ -83,15 +98,15 @@ void set_pref(Preferences *prefs, const char *key, const char *value) {
         print("Enter new value for %s: ", key);
 
         get_input(rcvd);
-        print("Storing: %s\n", rcvd);
+        print("Storing (length %d): %s\n", strlen(rcvd), rcvd);
         stored = prefs->putString(key, rcvd);
     } else {
         print("For key: %s\n", key);
 
-        print("Storing: %s\n", value);
+        print("Storing (length %d): %s\n", strlen(value), value);
         stored = prefs->putString(key, value);
     }
-    delay(500);
+    // delay(500);
 
     if (stored > 0) {
         // Serial.print("input length: ");
@@ -141,15 +156,24 @@ int get_input(char *rcvd) {
 }
 
 void print(const char *format, ...) {
-    static char buffer[CLI_MAX_CHARS];
+    static char buffer[HTTP_MAX_CHARS];
 
     va_list args;
     va_start(args, format);
 
-    if (strlen(format) > (CLI_MAX_CHARS - 2)) Serial.println("WARNING! Printed text will be truncated!");
-    int ret = vsnprintf(buffer, CLI_MAX_CHARS, format, args);
+    if (strlen(format) > (HTTP_MAX_CHARS - 2)) Serial.println("WARNING! Printed text will be truncated!");
+    int ret = vsnprintf(buffer, HTTP_MAX_CHARS, format, args);
     if (ret < 0) Serial.println("WARNING! Print encoding failed!");
     Serial.print(buffer);
 
     va_end(args);
+}
+
+void get_memory_stats_with_caller(const char *caller_name, int line) {
+    print("get_memory_stats() called from: %s:%d\n", caller_name, line);
+    print("total free heap (MALLOC_CAP_INTERNAL):    %d\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    print("total free heap (MALLOC_CAP_DEFAULT):     %d\n", heap_caps_get_free_size(MALLOC_CAP_DEFAULT));
+    print("largest free block (MALLOC_CAP_INTERNAL): %d\n", heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    print("largest free block (MALLOC_CAP_DEFAULT):  %d\n", heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+    print("task high-water mark:                     %d\n", uxTaskGetStackHighWaterMark(NULL));
 }

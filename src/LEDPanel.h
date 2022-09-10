@@ -58,6 +58,7 @@ class LEDPanel {
 
     // Set the target palette to blend toward
     void set_target_palette(CRGBPalette16 target_palette);
+    CRGBPalette16 get_target_palette();
 
    private:
     // Variables

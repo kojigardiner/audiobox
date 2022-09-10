@@ -1,5 +1,7 @@
 #include "Spotify.h"
 
+#include <SPIFFS.h>
+
 #include "Utils.h"
 
 Spotify::Spotify(const char *client_id, const char *auth_b64, const char *refresh_token) {
@@ -11,14 +13,9 @@ Spotify::Spotify(const char *client_id, const char *auth_b64, const char *refres
     _reset_variables();
 }
 
-bool Spotify::get_refresh_token(const char *auth_b64, char *refresh_token) {
+bool Spotify::get_refresh_token(const char *auth_b64, const char *auth_code, char *refresh_token) {
     bool ret = false;
     HTTPClient http;
-
-    // get the authorization code from the user
-    char auth_code[CLI_MAX_CHARS];
-    print("\nCopy and paste the characters after \"code: \" on the webpage. Do not include the quotation (\") marks: ");
-    get_input(auth_code);
 
     http.begin(SPOTIFY_TOKEN_URL);
 
@@ -30,15 +27,18 @@ bool Spotify::get_refresh_token(const char *auth_b64, char *refresh_token) {
     snprintf(request_data, HTTP_MAX_CHARS, "grant_type=authorization_code&code=%s&redirect_uri=%s", auth_code, SPOTIFY_REDIRECT_URI);
 
     int httpCode = http.POST(request_data);
+
     String response = http.getString();
-    print("%s\n", response.c_str());
+
     http.end();
 
     switch (httpCode) {
         case HTTP_CODE_OK: {
-            DynamicJsonDocument json(20000);
-            if (deserializeJson(json, response) != DeserializationError::Ok) {
-                print("json deserialization error\n");
+            StaticJsonDocument<SPOTIFY_REFRESH_TOKEN_JSON_SIZE> json;
+            DeserializationError err = _deserialize_json_from_string(&json, &response);
+            if (err != DeserializationError::Ok) {
+                print("json deserialization error %s in %s\n", err.c_str(), __func__);
+                get_memory_stats();
                 ret = false;
             } else {
                 strncpy(refresh_token, (json)["refresh_token"].as<const char *>(), CLI_MAX_CHARS);
@@ -55,9 +55,10 @@ bool Spotify::get_refresh_token(const char *auth_b64, char *refresh_token) {
     return ret;
 }
 
-// CLI flow for requesting user to grant access to their account
-// This should only be run once to link a user's account to the box, and will return a pointer to the refresh token
-bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, char *refresh_token) {
+// Flow for requesting user to grant access to their account
+// This should only be run once to link a user's account to the box
+// It will return an authorization url that the user must visit
+bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, char *auth_url) {
     bool ret;
     HTTPClient http;
     char url[HTTP_MAX_CHARS];
@@ -67,7 +68,8 @@ bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, cha
              "?client_id=%s"
              "&response_type=code"
              "&redirect_uri=%s"
-             "&scope=%s",
+             "&scope=%s"
+             "&show_dialog=true",  // force the user to confirm their identity or change accounts
              SPOTIFY_AUTH_URL, client_id, SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPE);
 
     http.begin(url);
@@ -79,12 +81,8 @@ bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, cha
     // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
     switch (httpCode) {
         case HTTP_CODE_SEE_OTHER: {
-            print("\nLaunch the following URL in your browser to authorize access: ");
-            print("%s\n", payload.c_str());
-            print("\nAfter granting access, you will be redirected to a webpage.\n");
-
-            ret = get_refresh_token(auth_b64, refresh_token);
-
+            strncpy(auth_url, payload.c_str(), HTTP_MAX_CHARS);
+            ret = true;
             break;
         }
         default:
@@ -99,8 +97,9 @@ bool Spotify::request_user_auth(const char *client_id, const char *auth_b64, cha
 void Spotify::update() {
     if (_token_expired) {
         while (!_get_token()) {  // keep trying to get a token
-            delay(1000);
+            delay(1000);         // TODO: create a timeout and change return value to a bool so we can indicate that the update failed
         }
+        _get_user_profile();  // update the user name
         //_reset_variables();
     }
 
@@ -124,6 +123,22 @@ double Spotify::get_track_progress() {
     return double(_progress_ms) / _duration_ms;
 }
 
+void Spotify::get_user_name(char *user_name) {
+    strncpy(user_name, _user_name, CLI_MAX_CHARS);
+}
+
+void Spotify::get_art_url(char *url) {
+    strncpy(url, _album_art.url, CLI_MAX_CHARS);
+}
+
+void Spotify::get_album_name(char *album_name) {
+    strncpy(album_name, _album, CLI_MAX_CHARS);
+}
+
+void Spotify::get_artist_name(char *artist_name) {
+    strncpy(artist_name, _artists, CLI_MAX_CHARS);
+}
+
 // Indicates if Spotify is current running on the linked account
 bool Spotify::is_active() {
     return _is_active;
@@ -134,7 +149,7 @@ Spotify::public_data_t Spotify::get_data() {
     _public_data.is_active = _is_active;
     _public_data.track_progress = get_track_progress();
     _public_data.art_changed = _album_art.changed;
-    _public_data.art_data = _album_art.data;
+    _public_data.art_data = _album_art.data;  // pointer to heap memory address
     _public_data.art_loaded = _album_art.loaded;
     _public_data.art_num_bytes = _album_art.num_bytes;
     _public_data.art_width = _album_art.width;
@@ -180,13 +195,15 @@ bool Spotify::_get_token() {
 
     int httpCode = http.POST(request_data);
 
-    if (httpCode == HTTP_CODE_OK) {
-        String payload = http.getString();
-        print("%s\n", payload.c_str());
+    String response = http.getString();
+    // print("%s\n", response.c_str());
 
-        DynamicJsonDocument json(20000);
-        if (deserializeJson(json, payload) != DeserializationError::Ok) {
-            print("json deserialization error\n");
+    if (httpCode == HTTP_CODE_OK) {
+        StaticJsonDocument<SPOTIFY_TOKEN_JSON_SIZE> json;
+        DeserializationError err = _deserialize_json_from_string(&json, &response);
+        if (err != DeserializationError::Ok) {
+            print("json deserialization error %s in %s\n", err.c_str(), __func__);
+            get_memory_stats();
             ret = false;
         } else {
             strncpy(_token, (json)["access_token"].as<const char *>(), CLI_MAX_CHARS);
@@ -198,6 +215,109 @@ bool Spotify::_get_token() {
     }
 
     http.end();
+
+    return ret;
+}
+
+int Spotify::_write_http_response_to_file(HTTPClient *http, const char *filename) {
+    File payload_file = SPIFFS.open(filename, "w");
+    int bytes_written = http->writeToStream(&payload_file);
+    payload_file.close();
+
+    return bytes_written;
+}
+
+DeserializationError Spotify::_deserialize_json_from_file(JsonDocument *json, const char *filename) {
+    File payload_file = SPIFFS.open(filename, "r");
+    DeserializationError err = deserializeJson(*json, payload_file);
+    print("%s: file size %d required %d of json memory\n", __func__, payload_file.size(), json->memoryUsage());
+    payload_file.close();
+
+    return err;
+}
+
+DeserializationError Spotify::_deserialize_json_from_string(JsonDocument *json, String *response, bool use_filter) {
+    DeserializationError err;
+
+    if (use_filter) {
+        StaticJsonDocument<300> filter;
+        filter["is_playing"] = true;
+        filter["progress_ms"] = true;
+        filter["item"]["id"] = true;
+        filter["item"]["name"] = true;
+        filter["item"]["duration_ms"] = true;
+        filter["item"]["artists"] = true;
+        filter["item"]["album"]["name"] = true;
+        filter["item"]["album"]["images"] = true;
+        filter["device"]["is_active"] = true;
+        filter["device"]["type"] = true;
+        filter["device"]["name"] = true;
+        filter["device"]["volume_percent"] = true;
+        // print("filter memory: %d\n", filter.memoryUsage());
+        err = deserializeJson(*json, *response, DeserializationOption::Filter(filter));
+    } else {
+        err = deserializeJson(*json, *response);
+    }
+
+    print("%s: string size %d required %d of json memory\n", __func__, response->length(), json->memoryUsage());
+
+    return err;
+}
+
+bool Spotify::_get_user_profile() {
+    bool ret;
+    HTTPClient http;
+
+    http.begin(SPOTIFY_USER_URL);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Accept", "application/json");
+    char bearer_header[HTTP_MAX_CHARS];
+    snprintf(bearer_header, HTTP_MAX_CHARS, "Bearer %s", _token);
+    http.addHeader("Authorization", bearer_header);
+
+    int httpCode = http.GET();
+
+    String response = http.getString();
+    // print("%s\n", response.c_str());
+
+    http.end();
+
+    // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
+    switch (httpCode) {
+        case HTTP_CODE_OK: {
+            StaticJsonDocument<SPOTIFY_PLAYER_JSON_SIZE> json;
+
+            DeserializationError err = _deserialize_json_from_string(&json, &response);
+
+            if (err != DeserializationError::Ok) {
+                print("json deserialization error %s in %s\n", err.c_str(), __func__);
+                get_memory_stats();
+                ret = false;
+            } else {
+                strncpy(_user_name, (json)["display_name"].as<const char *>(), CLI_MAX_CHARS);
+                ret = true;
+            }
+
+            _token_expired = false;
+            break;
+        }
+        case HTTP_CODE_UNAUTHORIZED:
+        case HTTP_CODE_FORBIDDEN:
+            print("%d:%s: Bad/expired token or OAuth request\n", httpCode, __func__);
+            _token_expired = true;
+            ret = false;
+            break;
+        case HTTP_CODE_TOO_MANY_REQUESTS:
+            print("%d:%s: Exceeded rate limits\n", httpCode, __func__);
+            _token_expired = false;
+            ret = false;
+            break;
+        default:
+            print("%d:%s: Unrecognized error\n", httpCode, __func__);
+            _token_expired = true;
+            ret = false;
+            break;
+    }
 
     return ret;
 }
@@ -215,17 +335,22 @@ bool Spotify::_get_player() {
     http.addHeader("Authorization", bearer_header);
 
     int httpCode = http.GET();
-    String payload = http.getString();
-    // Serial.println(payload);
+
+    String response = http.getString();
+    // print("%s\n", response.c_str());
 
     http.end();
 
     // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
     switch (httpCode) {
         case HTTP_CODE_OK: {
-            DynamicJsonDocument json(20000);
-            if (deserializeJson(json, payload) != DeserializationError::Ok) {
-                print("json deserialization error\n");
+            StaticJsonDocument<SPOTIFY_PLAYER_JSON_SIZE> json;
+
+            DeserializationError err = _deserialize_json_from_string(&json, &response, true);
+
+            if (err != DeserializationError::Ok) {
+                print("json deserialization error %s in %s\n", err.c_str(), __func__);
+                get_memory_stats();
                 ret = false;
             } else {
                 _parse_json(&json);
@@ -279,14 +404,18 @@ bool Spotify::_get_features() {
     http.addHeader("Authorization", bearer_header);
 
     int httpCode = http.GET();
-    String payload = http.getString();
+
+    String response = http.getString();
+
     http.end();
 
     switch (httpCode) {  // see here: https://developer.spotify.com/documentation/web-api/reference/#/operations/get-information-about-the-users-current-playback
         case HTTP_CODE_OK: {
-            DynamicJsonDocument json(20000);
-            if (deserializeJson(json, payload) != DeserializationError::Ok) {
-                print("json deserialization error\n");
+            StaticJsonDocument<SPOTIFY_FEATURES_JSON_SIZE> json;
+            DeserializationError err = _deserialize_json_from_string(&json, &response);
+            if (err != DeserializationError::Ok) {
+                print("json deserialization error %s in %s\n", err.c_str(), __func__);
+                get_memory_stats();
                 ret = false;
             } else {
                 _tempo = json["tempo"].as<float>();
@@ -327,7 +456,7 @@ bool Spotify::_get_features() {
 }
 
 // Parses json response from the Spotify Web API and stores results in member variables
-void Spotify::_parse_json(DynamicJsonDocument *json) {
+void Spotify::_parse_json(JsonDocument *json) {
     if ((*json)["item"]["id"].as<const char *>() == 0) {
         print("json track id is null!\n");
         return;  // in rare cases (e.g. on a playlist, Spotify will
@@ -406,14 +535,15 @@ bool Spotify::_get_art() {
 
         // Allocate memory in heap for the downloaded data
         if (_album_art.data != NULL) {
-            print("Free heap prior to free: %d\n", ESP.getFreeHeap());
+            print("Free heap prior to free: %d\n", heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
             free(_album_art.data);  // if not NULL, we have previously allocated memory and should free it
         }
-        print("Free heap prior to malloc: %d\n", ESP.getFreeHeap());
+        print("Free heap prior to malloc: %d\n", heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
         _album_art.data = (uint8_t *)malloc(_album_art.num_bytes * sizeof(*(_album_art.data)));  // dereference the art_data pointer to get the size of each element (uint8_t)
 
         if (_album_art.data == NULL) {
             print("Not enough heap for malloc\n");
+            get_memory_stats();
             _album_art.loaded = false;
             ret = false;
         } else {
@@ -466,9 +596,11 @@ bool Spotify::_get_art() {
 }
 
 void Spotify::_reset_variables() {
+    _token_expired = true;
     _progress_ms = 0;
     _duration_ms = 0;
     _volume = 0;
+    strncpy(_user_name, "", CLI_MAX_CHARS);
     strncpy(_track_id, "", CLI_MAX_CHARS);
     strncpy(_artists, "", CLI_MAX_CHARS);
     strncpy(_track_title, "", CLI_MAX_CHARS);

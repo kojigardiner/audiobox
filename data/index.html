@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/png" href="https://i.ibb.co/JmPd0pX/apple-touch-icon-174x174.png">
+    <link rel="apple-touch-icon" href="https://i.ibb.co/JmPd0pX/apple-touch-icon-174x174.png">
+    <title>Audiobox XL</title>
+    <script src="audiobox.js" defer></script>
+</head>
+
+<body>
+    <div class="header">
+        <a class="back" href="#"></a>
+        <div class="title">Audiobox XL</div>
+        <a class="forward" href="#"></a>
+    </div>
+    <a class="status" href="settings.html">
+        <div class="wifi">
+            <div class="wifi-detail">
+                <div class="ssid-name">WiFi: %CURRENT_SSID%</div>
+                <div class="ssid-status">%WIFI_STATUS%</div>
+            </div>
+        </div>
+        <div class="spotify">
+            <div class="spotify-detail">
+                <div class="spotify-user">Spotify: %SPOTIFY_USER%</div>
+                <div class="spotify-active">Inactive</div>
+            </div>
+        </div>
+    </a>
+    <div class="content">
+        <!-- <a class="button button-reset" href="#">Reset All</a> -->
+        <div class="message">
+            Start playing music on Spotify to activate Audiobox XL!
+        </div>
+        <div class="buttons">
+            <a class="button button-1" onclick="fetch('change-mode')">Change Mode</a>
+            <a class="button button-2" onclick="fetch('toggle-art')">Show Album Art</a>
+        </div>
+        <div class="album hidden">
+            <div class="art">
+                <div class="art-label">Album Art</div>
+                <!-- (46 char max for label) -->
+                <img class="album-art" src="http://i.scdn.co/image/ab67616d0000b2739257e57e9651faa10d231dba"
+                    alt="album art">
+            </div>
+            <div class="palette">
+                <div class="palette-label">Color Palette</div>
+                <div class="palette-container"></div>
+            </div>
+        </div>
+        <div class="footer">
+            <div class="text">Copyright © Koji Gardiner 2022</div>
+        </div>
+</body>
+
+</html>

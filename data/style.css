@@ -1,0 +1,156 @@
+/* * {
+    border: 1px solid red;
+} */
+
+/* Color reference: https://coolors.co/f7ebec-ddbdd5-ac9fbb-59656f-1d1e2c */
+
+body {
+    background-color: #1d1e2c;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    color: #f7ebec;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.header {
+    font-size: 32px;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+
+.header .forward,
+.header .back {
+    font-weight: light;
+    font-size: 20px;
+    text-decoration: none;
+    color: #f7ebec;
+}
+
+.header .title {
+    justify-self: center;
+    margin: 10px;
+    text-align: center;
+}
+
+.content,
+form {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-around;
+    gap: 15px;
+    margin: 10px 10px;
+}
+
+.content .text {
+    align-self: center;
+}
+
+.status {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px;
+    border: 1px gray solid;
+    border-radius: 20px;
+    gap: 10px;
+    text-decoration: none;
+    color: #f7ebec;
+}
+
+.wifi-detail,
+.spotify-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-self: flex-start;
+    text-align: center;
+}
+
+.ssid-name,
+.ssid-status,
+.spotify-user,
+.spotify-active {
+    font-size: 12px;
+    font-weight: light;
+    padding: 4px;
+    border-radius: 100px;
+}
+
+.message {
+    text-align: center;
+    font-size: 28px;
+    font-weight: lighter;
+    align-self: center;
+    border-radius: 10px;
+    padding: 100px 0px;
+    color: #F7EBEC;
+}
+
+.buttons {
+    display: flex;
+    justify-content: space-around;
+    gap: 15px;
+    margin: 10px 0px;
+}
+
+a.link {
+    color: #f7ebec;
+    font-weight: bolder;
+}
+
+.button,
+input[type=submit] {
+    flex: 1;
+    padding: 20px;
+    border-radius: 8px;
+    border-style: none;
+    background-color: #59656f;
+    color: #f7ebec;
+    font-size: 18px;
+    font-weight: light;
+    text-decoration: none;
+    text-align: center;
+}
+
+.album {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+}
+
+
+.album-art {
+    max-width: 300px;
+}
+
+.palette-container {
+    display: flex;
+}
+
+.art-label,
+.palette-label {
+    font-size: small;
+    font-weight: lighter;
+    text-align: center;
+    padding: 5px;
+}
+
+.footer {
+    font-size: 12px;
+    font-weight: lighter;
+    display: flex;
+    justify-content: center;
+
+}
+
+.hidden {
+    display: none;
+}
+
+.invisible {
+    visibility: hidden;
+}

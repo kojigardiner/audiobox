@@ -124,6 +124,10 @@ void LEDPanel::set_target_palette(CRGBPalette16 target_palette) {
     this->_target_palette = target_palette;
 }
 
+CRGBPalette16 LEDPanel::get_target_palette() {
+    return this->_target_palette;
+}
+
 void LEDPanel::set_blending(TBlendType blending) {
     this->_curr_blending = blending;
 }
