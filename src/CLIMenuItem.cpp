@@ -11,12 +11,12 @@ CLIMenuItem::CLIMenuItem(const char *desc) {
     this->_menu = 0;
 };
 
-// Basic function execution
+// Basic function execution type (runs the base constructor first)
 CLIMenuItem::CLIMenuItem(const char *desc, void (*command)()) : CLIMenuItem(desc) {
     this->_command = command;
 }
 
-// New menu execution
+// New menu execution type (runs the base constructor first)
 CLIMenuItem::CLIMenuItem(const char *desc, CLIMenu *menu) : CLIMenuItem(desc) {
     this->_menu = menu;
 }
@@ -26,7 +26,7 @@ const char *CLIMenuItem::get_desc() {
     return this->_desc;
 }
 
-// Execute the function
+// Execute the associated command
 void CLIMenuItem::execute() {
     if (this->_command != 0) {
         _command();

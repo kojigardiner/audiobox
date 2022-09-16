@@ -121,10 +121,7 @@ void set_spotify_client_id() {
     print("Storing: %s\n", auth_b64);
     stored = prefs.putString(PREFS_SPOTIFY_AUTH_B64_KEY, auth_b64);
     if (stored > 0) {
-        // Serial.print("input length: ");
-        // Serial.println(len);
-        // Serial.print("bytes stored: ");
-        // Serial.println(stored);
+
     } else {
         print("Failed to store to preferences\n");
     }
