@@ -9,34 +9,43 @@
 // Forward declaration
 class LEDPanel;
 
-// Abstract class for LED pattern generation. Create a subclass for new LED pattern functionality.
+// The LEDAudioPattern is an abstract class that is used for LED pattern generation.
+// The LEDAudioPattern object has a pointer to an LEDPanel, and will set the LEDs on that panel
+// to specific intensity values based on the implementation.
 class LEDAudioPattern {
    public:
+    // Constructor
     LEDAudioPattern(LEDPanel *lp);
     virtual ~LEDAudioPattern();
 
-    virtual void set_leds(int *intensity, double tempo) = 0;  // abstract method to be implemented by all subclasses
+    // Abstract method to be implemented by all subclasses
+    // Sets the LED intensity values for the given array. Accepts a music tempo parameter that can be used
+    // to alter the noise pattern.
+    virtual void set_leds(int *intensity, double tempo) = 0;
 
    protected:
     LEDPanel *_lp;  // pointer to LED panel object whose pixels will be updated
 };
 
-// Simplex noise pattern
+// Creates a simplex noise pattern ("lava lamp")
+// Code adapted from FastLED's "Noise" function: https://github.com/FastLED/FastLED/blob/master/examples/NoisePlusPalette/NoisePlusPalette.ino
 class LEDNoisePattern : public LEDAudioPattern {
    public:
     LEDNoisePattern(LEDPanel *lp) : LEDAudioPattern(lp){};
-
     void set_leds(int *intensity, double tempo) override;
 
    private:
-    // Helper methods
+    // Fill the _noise array with simplex noise values
     void _fill_noise8();
+
+    // Sets LED intensities based on current noise values and current color palette.
     void _map_noise_to_leds_using_palette();
 
-    // Static variables that will remain consistent between instantiation of the class for
-    // visual consistency when switching modes
-    static uint8_t _ihue;  // hue counter
+    // Below are static variables that will remain consistent between calls to the class for
+    // visual consistency when switching modes.
 
+    static uint8_t _ihue;  // hue counter
+    
     // Coordinates for noise pattern
     static uint16_t _x;
     static uint16_t _y;
@@ -55,13 +64,13 @@ class LEDNoisePattern : public LEDAudioPattern {
     // higher the value of scale, the more "zoomed out" the noise iwll be.  A value
     // of 1 will be so zoomed in, you'll mostly see solid colors.
     static uint16_t _scale;  // scale is set dynamically once we've started up
-    static uint16_t _target_scale;
+    static uint16_t _target_scale;  // used when adjusting scale dynamically
 
     // This is the array that we keep our computed noise values in
     static uint8_t _noise[GRID_H][GRID_W];
 };
 
-// Vertical filled bar pattern
+// Creates a vertical filled bar pattern
 class LEDBarsPattern : public LEDAudioPattern {
    public:
     LEDBarsPattern(LEDPanel *lp) : LEDAudioPattern(lp){};
@@ -72,7 +81,7 @@ class LEDBarsPattern : public LEDAudioPattern {
     unsigned long _counter = 0;
 };
 
-// Vertical bar peaks-only pattern
+// Creates vertical peaks pattern
 class LEDOutrunBarsPattern : public LEDAudioPattern {
    public:
     LEDOutrunBarsPattern(LEDPanel *lp) : LEDAudioPattern(lp){};
@@ -83,21 +92,21 @@ class LEDOutrunBarsPattern : public LEDAudioPattern {
     unsigned long _counter = 0;
 };
 
-// Vertical bar pattern, symmetric about center
+// Creates vertical bar pattern, symmetric about centerline
 class LEDCenterBarsPattern : public LEDAudioPattern {
    public:
     LEDCenterBarsPattern(LEDPanel *lp) : LEDAudioPattern(lp){};
     void set_leds(int *intensity, double tempo) override;
 };
 
-// Side-scrolling waterfall pattern, similar to spectrogram display
+// Creates a side-scrolling waterfall pattern, similar to a spectrogram display
 class LEDWaterfallPattern : public LEDAudioPattern {
    public:
     LEDWaterfallPattern(LEDPanel *lp) : LEDAudioPattern(lp){};
     void set_leds(int *intensity, double tempo) override;
 };
 
-// Symmetric serpentine grid pattern
+// Creates a left/right symmetric serpentine grid pattern that illuminates and fades over time
 class LEDSymSnakeGridPattern : public LEDAudioPattern {
    public:
     LEDSymSnakeGridPattern(LEDPanel *lp) : LEDAudioPattern(lp){};
