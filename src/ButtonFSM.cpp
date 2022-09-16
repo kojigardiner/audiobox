@@ -7,7 +7,7 @@ ButtonFSM::ButtonFSM(int button_id) {
     pinMode(_button_id, INPUT_PULLUP);
 }
 
-// Advance the state machine
+// Advances the state machine
 void ButtonFSM::advance() {
     _prev_state = _state;
 
@@ -48,17 +48,17 @@ void ButtonFSM::advance() {
     }
 }
 
-// Read the button
+// Reads the button
 void ButtonFSM::_read() {
     _button_read = digitalRead(_button_id);
 }
 
-// Return the current state
+// Returns the current state
 ButtonFSM::button_fsm_state_t ButtonFSM::get_state() {
     return _state;
 }
 
-// Return the button id
+// Returns the button id
 int ButtonFSM::get_id() {
     return _button_id;
 }
