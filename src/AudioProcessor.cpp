@@ -28,7 +28,7 @@ bool AudioProcessor::is_active() {
     return _is_active;
 }
 
-/*** Initialize I2S for audio ADC ***/
+// Initialize I2S for audio ADC
 bool AudioProcessor::_i2s_init() {
     i2s_config_t i2s_config = {
         .mode = i2s_mode_t(I2S_MODE_MASTER | I2S_MODE_RX),
@@ -50,7 +50,7 @@ bool AudioProcessor::_i2s_init() {
         .data_in_num = PIN_I2S_DIN          // Serial Data (SD)
     };
 
-    // Workaround for SPH0645 timing issue
+    // Workaround for SPH0645 timing issue (see comments: https://hackaday.io/project/162059-street-sense/log/160705-new-i2s-microphone)
     REG_SET_BIT(I2S_TIMING_REG(I2S_PORT), BIT(9));
     REG_SET_BIT(I2S_CONF_REG(I2S_PORT), I2S_RX_MSB_SHIFT);
 
@@ -67,6 +67,7 @@ bool AudioProcessor::_i2s_init() {
     return true;
 }
 
+// Initialize instance variables
 void AudioProcessor::_init_variables() {
     _setup_audio_bins();
 
@@ -91,7 +92,7 @@ void AudioProcessor::_init_variables() {
     print("Audio processor variables initialized\n");
 }
 
-/*** Get audio data from I2S mic ***/
+// Get audio data from I2S mic (non-overlapping)
 void AudioProcessor::get_audio_samples() {
     int samples_to_read = FFT_SAMPLES;
 
@@ -133,7 +134,7 @@ void AudioProcessor::get_audio_samples() {
     }
 }
 
-/*** Get audio data from I2S mic, only fill half the buffer each time and shift previous data up ***/
+// Get audio data from I2S mic (overlapping)
 void AudioProcessor::get_audio_samples_gapless() {
     int samples_to_read = FFT_SAMPLES / 2;
     int offset = FFT_SAMPLES - samples_to_read;
@@ -177,9 +178,10 @@ void AudioProcessor::get_audio_samples_gapless() {
     }
 }
 
+// Use the current audio samples to calculate an instantaneous volume, then uses exponential
+// moving average to update the _avg_volume variable.
 void AudioProcessor::update_volume() {
     // Use exponential moving average, simpler than creating an actual moving avg array
-    // curr_volume = _calc_rms(_v_real, FFT_SAMPLES);
     _curr_volume = _calc_rms_scaled(_v_real, FFT_SAMPLES);
 
     if (_audio_first_loop) {  // the first time through the loop, we have no history, so set the avg volume to the curr volume
@@ -191,7 +193,8 @@ void AudioProcessor::update_volume() {
     if (_curr_volume > VOL_PEAK_FACTOR * _avg_volume) {  // we have a peak
         _avg_peak_volume = (VOL_AVG_SCALE * _curr_volume) + (_avg_peak_volume * (1 - VOL_AVG_SCALE));
     }
-
+    
+    // Use the volume to scale/normalize the FFT values
     if (_VOLUME_SCALING) {
         _max_fft_val = _avg_volume * VOL_MULT;
         // if (_max_fft_val < 1.0) {
@@ -200,27 +203,16 @@ void AudioProcessor::update_volume() {
     } else {
         _max_fft_val = FFT_FIXED_MAX_VAL;  // fixed value if we are not scaling
     }
-
-    // Serial.print(curr_volume*10,8);
-    // Serial.print(",");
-    // Serial.println(avg_volume*10,8);
 }
 
 void AudioProcessor::run_fft() {
     _perform_fft();
-    // for (int i=0; i < FFT_SAMPLES/2; i++) {
-    //   Serial.print(_v_real[i], 16);
-    //   Serial.print(",");
-    // }
-    // Serial.println("");
-
     _postprocess_fft();
     _detect_beat();
-
-    // Serial.print(_fft_bin[1]); Serial.print(","); Serial.print((_fft_bin[4] + _fft_bin[5] + _fft_bin[6] + _fft_bin[7] + _fft_bin[8]) / 5);
-    // Serial.print("\n");
 }
 
+// This method runs once at init time to pre-calculate audio bands that are then used for the
+// column-based LED visualizations.
 void AudioProcessor::_setup_audio_bins() {
     double nyquist_freq = I2S_SAMPLE_RATE / 2.0;
     double lowest_freq = LOWEST_FREQ_BAND;
@@ -287,6 +279,10 @@ void AudioProcessor::_perform_fft() {
     }
 }
 
+// This method cleans up the FFT results and prepares them for LED intensity calculations.
+// Set FFT_WHITE_NOISE_CAL to true in Constants.h in order to run in "calibration" mode. In calibration
+// mode, the microphone should be set up to record a speaker playing white noise. The method will calculate
+// the scaler values to put in the FFT_EQ constant and print them over serial.
 void AudioProcessor::_postprocess_fft() {
     // 1. Remove baseline FFT "noise"
     // 2. Apply white noise eq (optional)
@@ -314,7 +310,6 @@ void AudioProcessor::_postprocess_fft() {
 
     for (int i = 0; i < FFT_SAMPLES / 2; i++) {
         _v_real[i] = (double(_v_real[i]) - double(FFT_REMOVE[i])) / _max_fft_val;  // remove noise and scale by max_val
-        //_v_real[i] = (double(_v_real[i]) - 0) / _max_fft_val;        // remove noise and scale by max_val
         if (_v_real[i] < 0) {
             _v_real[i] = 0;
         }
@@ -361,7 +356,7 @@ void AudioProcessor::_postprocess_fft() {
     }
     if (_PERCEPTUAL_BINNING) {
         // Since not all bins will get data, fill the bins that are still zero with an avg of the neighboring bins
-        // Note that this is technically wrong as it creates FFT energy where there was none
+        // Note that this creates FFT energy where there was none previously.
         for (int i = 1; i < FFT_SAMPLES / 2 - 1; i++) {
             if (_fft_bin[i] == 0) {
                 _fft_bin[i] = int(double(_fft_bin[i - 1] + _fft_bin[i + 1]) / 2);
@@ -370,6 +365,8 @@ void AudioProcessor::_postprocess_fft() {
     }
 }
 
+// This method needs more work -- it is intended to track specific FFT bins (e.g. bass) and
+// detect peaks; however, it currently is too erratic to be used for visualizations.
 void AudioProcessor::_detect_beat() {
     for (int i = 0; i < FFTS_PER_SEC - 1; i++) {
         _bass_arr[i] = _bass_arr[i + 1];  // shift elements forward
@@ -415,6 +412,7 @@ void AudioProcessor::_detect_beat() {
     // Serial.print(String(20*log10(curr_volume)) + "," + String(20*log10(avg_volume)) + "," + String(curr_bass) + "," + String(_avg_bass) + "," + String(_thresh_bass) + "," + String(curr_bass / bass_max) + "\n");
 }
 
+// Calculates intensity for LEDs based on FFT, scaling brightness with the FFT magnitude and applying a smoothing parameter over time.
 void AudioProcessor::calc_intensity(int length) {
     _interpolate_fft(FFT_SAMPLES / 2, length);  // interpolate the FFT to the length of LEDs we want to illuminate
 
@@ -424,15 +422,7 @@ void AudioProcessor::calc_intensity(int length) {
         }
         double constrain_val = constrain(_fft_interp[i], 0, 1);  // cap the range at [0 1]
         double pow_val = pow(constrain_val, FFT_SCALE_POWER);    // raise to the power to increase sensitivity, multiply by max value to increase resolution
-        // double pow_val = constrain_val;
-        // int map_val = map(pow_val, 0, 1, 0, BRIGHT_LEVELS);                // scale this into discrete LED brightness levels
-        int map_val = int(round(pow_val * BRIGHT_LEVELS));
-
-        // Serial.print(constrain_val, 8);
-        // Serial.print(",");
-        // Serial.print(pow_val, 8);
-        // Serial.print(",");
-        // Serial.println(map_val);
+        int map_val = int(round(pow_val * BRIGHT_LEVELS));  // scale this into discrete LED brightness levels
 
         _intensity[i] -= FADE;  // fade first
         if (_intensity[i] < 0) _intensity[i] = 0;
@@ -449,7 +439,7 @@ void AudioProcessor::calc_intensity(int length) {
     }
 }
 
-// Simple version that does no scaling or fading, and provides an intensity value for each column in the grid
+// Simple version that does no scaling or fading, and provides an intensity value for each column in the grid.
 void AudioProcessor::calc_intensity_simple() {
     _clear_fft_bin();
 
@@ -503,16 +493,17 @@ double AudioProcessor::_calc_rms_scaled(float *arr, int len) {
     return constrain(_calc_rms(arr, len) / rms_scale_val, 0, 1);
 }
 
+// Clears out the fft_bin array as it accumulates stale values
 void AudioProcessor::_clear_fft_bin() {
-    memset(_fft_bin, 0, sizeof(_fft_bin));  // clear out the fft_bin array as it accumulates stale values
+    memset(_fft_bin, 0, sizeof(_fft_bin));
 }
 
+// Takes an array of FFT values and interpolates it to a new length.
+// TODO: there is a lot of repeated code here, refactor it
 void AudioProcessor::_interpolate_fft(int old_length, int new_length) {
     if (new_length > NUM_LEDS) {
         print("WARNING: trying to interpolate into _fft_interp array that is too small!\n");
     }
-
-    // TODO: there is a lot of repeated code here, refactor it
 
     // Three scenarios:
     // 1) new_length > old_length --> linearly interpolate up to new_length
