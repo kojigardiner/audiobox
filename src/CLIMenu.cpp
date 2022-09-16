@@ -6,8 +6,6 @@
 #include "Constants.h"
 #include "Utils.h"
 
-// Constructor
-// Takes a string with text to display for this menu, a list of menu items, the number of items, and an optional pointer to the previous menu
 CLIMenu::CLIMenu(const char *text, const CLIMenuItem *items, int nitems, CLIMenu *prev) {
     strncpy(this->_text, text, MAX_CLI_MENU_TEXT);
     for (int i = 0; i < nitems; i++) {
@@ -17,18 +15,16 @@ CLIMenu::CLIMenu(const char *text, const CLIMenuItem *items, int nitems, CLIMenu
     this->_prev = prev;
 }
 
-// Run the CLI loop for the menu
 void CLIMenu::run_cli() {
     char rcvd[CLI_MAX_CHARS];
     while (true) {
-        this->show();
+        this->_show();
         get_input(rcvd);
-        if (strlen(rcvd) > 0 && !this->run_command(atoi(&rcvd[0]))) break;
+        if (strlen(rcvd) > 0 && !this->_run_command(atoi(&rcvd[0]))) break;
     }
 }
 
-// Display the menu on the command line
-void CLIMenu::show() {
+void CLIMenu::_show() {
     print("\n%s\n", this->_text);
 
     for (int i = 0; i < this->_nitems; i++) {
@@ -42,9 +38,7 @@ void CLIMenu::show() {
     }
 }
 
-// execute the command at index i
-// return true if we should continue in this menu or false if we should exit
-bool CLIMenu::run_command(int i) {
+bool CLIMenu::_run_command(int i) {
     if ((i >= 1) && (i <= this->_nitems)) {
         this->_items[i - 1].execute();
     } else if (i == 0) {  // exit
