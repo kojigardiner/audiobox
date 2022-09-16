@@ -10,7 +10,7 @@ LEDAudioPattern::LEDAudioPattern(LEDPanel *lp) {
 LEDAudioPattern::~LEDAudioPattern() {
 }
 
-// Initialize static variable used to maintain consistency of noise pattern across mode changes
+// Initialize static variables used to maintain consistency of noise pattern across mode changes
 uint8_t LEDNoisePattern::_ihue = 0;
 uint16_t LEDNoisePattern::_x = random16();
 uint16_t LEDNoisePattern::_y = random16();

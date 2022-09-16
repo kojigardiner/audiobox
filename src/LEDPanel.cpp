@@ -40,14 +40,13 @@ void LEDPanel::set_xy(int x, int y, CRGB value, bool start_top_left) {
     if (idx >= 0 && idx < _num_leds) _leds[idx] = value;
 }
 
-/*** Get Index of LED on a serpentine grid ***/
 int LEDPanel::grid_to_idx(int x, int y, bool start_top_left) {
-    /**
-     * Coordinate system starts with (0, 0) at the bottom corner of grid.
-     * Assumes a serpentine grid with the first pixel at the bottom left corner.
-     * Even rows count left->right, odd rows count right->left.
-     **/
+    // Coordinate system starts with (0, 0) at the bottom left corner of grid.
+    // Assumes a serpentine grid with the first pixel at the bottom left corner.
+    // Even rows increment left->right, odd rows increment right->left.
 
+    // TODO: add support for non-serpentine and non-bottom-left-first-pixel orientations.
+    
     int idx = 0;
 
     if ((x >= GRID_W) || (y >= GRID_H)) {  // we are outside the grid
@@ -140,7 +139,6 @@ void LEDPanel::blend_palettes(int change_rate) {
     nblendPaletteTowardPalette(this->_curr_palette, this->_target_palette, change_rate);
 }
 
-/*** Color Palettes ***/
 // Gradient palette "Sunset_Real_gp", originally from
 // http://soliton.vm.bytemark.co.uk/pub/cpt-city/nd/atmospheric/tn/Sunset_Real.png.index.html
 // converted for FastLED with gammas (2.6, 2.2, 2.5)
@@ -153,3 +151,4 @@ DEFINE_GRADIENT_PALETTE(Sunset_Real_gp){
     135, 100, 0, 103,
     198, 16, 0, 130,
     255, 0, 0, 160};
+    
