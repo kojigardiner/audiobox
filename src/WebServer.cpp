@@ -146,6 +146,7 @@ void handle_spotify_client(AsyncWebServerRequest* request) {
     // Send user back to spotify page
     request->send(SPIFFS, "/spotify.html", String(), false, processor);
 }
+
 void handle_spotify_account(AsyncWebServerRequest* request) {
     char auth_url[HTTP_MAX_CHARS];
     get_spotify_auth_url(auth_url);
