@@ -6,7 +6,7 @@
 #include "Constants.h"
 #include "Utils.h"
 
-// Template processing
+// Processes HTML files in order to replace variables.
 String processor(const String& var) {
     if (var == "CURRENT_SSID") {
         Preferences prefs;
