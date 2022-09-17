@@ -106,7 +106,6 @@ void set_pref(Preferences *prefs, const char *key, const char *value) {
         print("Storing (length %d): %s\n", strlen(value), value);
         stored = prefs->putString(key, value);
     }
-    // delay(500);
 
     if (stored > 0) {
         // Serial.print("input length: ");
