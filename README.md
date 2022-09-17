@@ -48,10 +48,10 @@ Audiobox XL is a music-reactive LED box with Spotify integration.
 ### Tasks
 Seven [FreeRTOS](https://www.freertos.org/) tasks are utilized to manage various control loops. A global event handler object manages communication between tasks. Tasks can independently emit messages to the event handler object, which then passes messages back to tasks that have subscribed to specific message types. In this way, no task needs to communicate directly with another -- all inter-task communication happens via the event handler.
 
-Note that only the Spotify task is pinned to CORE0 (the ESP32 ), all others to CORE1. Empirically, the Spotify task has proven to be significantly more stable on CORE0, perhaps due to the WiFi libraries also running there.
+Note the Spotify task is pinned to CORE0 and all others to CORE1. Empirically, the Spotify task has proven to be significantly more stable on CORE0, perhaps due to the WiFi libraries also running there.
 
 ### Spotify Integration
-[Spotify's Web API](https://developer.spotify.com/documentation/web-api/) provides music playback information pertaining to the currently linked user account. The authorization flow utilized requires a Spotify user to log in and allow the application to read the "user-read-playback-state" and "user-read-playback-position" information.
+[Spotify's Web API](https://developer.spotify.com/documentation/web-api/) provides music playback information pertaining to the currently linked user account. The authorization flow requires a Spotify user to log into their account and allow the application to read "user-read-playback-state" and "user-read-playback-position" information.
 
 ### Control
 The browser-based UI is served directly from the ESP32 using the [ESPAsyncWebServer](https://github.com/me-no-dev/ESPAsyncWebServer) library. Server-sent-events (SSE) are used to update the UI contents in realtime as audio tracks change.
@@ -81,7 +81,9 @@ Color palette generation uses a "mean cut" algorithm (similar to [median cut](ht
 </figure>
 
 ### Memory Allocation 
-In general the code in this project makes use of static memory allocation and avoids use of Arduino Strings where possible. However, the memory for album art jpgs, ArduinoJson objects for Spotify response parsing, and the LEDNoisePattern object are allocated on the heap. The event handler task can optionally dump the maximum stack usage for each task, allowing for fine-tuning of stack allocation. Note that the ESPAsyncWebServer dynamically allocates memory to manage HTTP requests, drastically reducing available heap memory during client requests.
+In general the code in this project makes use of static memory allocation and avoids use of Arduino Strings where possible to avoid heap fragmentation. However, album art jpgs, ArduinoJson objects for Spotify response parsing, and the LEDNoisePattern object are all allocated on the heap. 
+
+The event handler task can optionally dump the maximum stack usage for each task, allowing for fine-tuning of stack allocation. Note that the ESPAsyncWebServer dynamically allocates memory to manage HTTP requests, drastically reducing available heap memory during client requests.
 
 ## Hardware Design
 
@@ -123,7 +125,7 @@ Under the hood, the LED panel is attached to a rack-and-pinion system that moves
 <figure>
 <figcaption><i>LED panel actuation</i></figcaption>
 <div style="display:flex">
-<img src="images/gifs/audiobox_actuation.gif" alt="" height=200 style="padding:5px">
+<img src="images/gifs/audiobox_actuation.gif" alt="" width=600 style="padding:5px">
 </div>
 </figure>
 
@@ -148,13 +150,7 @@ The outer enclosure is a custom-designed, laser cut wooden box, using 1/4" sapel
 </div>
 </figure>
 
-I set up a camera to record a timelapse of the final assembly of the Audiobox XL, after applying the finish on the wood pieces.
-
-<figure>
-<figcaption><i>The final build</i></figcaption>
-<div style="display:flex; gap:10px">
-<img src="images/gifs/audiobox_build.gif" alt="" height=200>
-</figure>
+I set up a camera to record a timelapse of the final assembly of the Audiobox XL, after applying the finish on the wood pieces. See it [here](images/gifs/audiobox_build.gif)!
 
 ## Tools, Libraries, and Attributions
 ### IDE
@@ -162,7 +158,7 @@ I set up a camera to record a timelapse of the final assembly of the Audiobox XL
 - [PlatformIO](https://platformio.org/)
 
 ### Libraries & Code
-All libraries are installed via the PlatformIO plugin in VS Code. Links below do not necessarily map to the same version of the library used in this project. See [platformio.ini](platformio.ini) for the actual dependencies.
+This project makes use of the open source libraries listed below. All libraries are installed via the PlatformIO plugin in VS Code. Links below do not necessarily map to the same version of the library used in this project. See [platformio.ini](platformio.ini) for the actual dependencies.
 - [Arduino](https://github.com/espressif/arduino-esp32) - base libraries for ESP32
 - [FastLED](https://github.com/FastLED/FastLED) - for manipulating LEDs
 - [ArduinoJson](https://github.com/bblanchon/ArduinoJson) - for decoding responses from Spotify Web API
@@ -176,7 +172,7 @@ All libraries are installed via the PlatformIO plugin in VS Code. Links below do
 - [Random Nerd Tutorials](https://randomnerdtutorials.com/) - variety of references for working with ESP32 libaries
 
 ### Similar Projects
-During my time developing the Audiobox I've found a few projects with a lot of similarities, some available commercially:
+During my time developing the Audiobox I have come across a few projects with many similarities, some available commercially:
 - [Modustrial Maker - Bluetooth Speaker w/ Reactive LED Matrix](https://www.youtube.com/watch?v=X1bEgGLwVLY)
 - [Game Frame](https://www.ledseq.com/product/game-frame/)
 - [Divoom Pixoo](https://divoom.com/products/divoom-pixoo)
