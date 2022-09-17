@@ -25,7 +25,7 @@ Audiobox XL is a music-reactive LED box with Spotify integration.
 
 ## Software Design
 ### Tasks
-Seven [FreeRTOS](https://www.freertos.org/) tasks are utilized to separate various control loops. A global event handler object manages communication between tasks. Tasks can independently emit messages to the event handler object, which then passes messages back to tasks that have subscribed to specific message types. In this way, no task needs to communicate directly with another -- all inter-task communication happens via the event handler.
+Seven [FreeRTOS](https://www.freertos.org/) tasks are utilized to manage various control loops. A global event handler object manages communication between tasks. Tasks can independently emit messages to the event handler object, which then passes messages back to tasks that have subscribed to specific message types. In this way, no task needs to communicate directly with another -- all inter-task communication happens via the event handler.
 
 Note that only the Spotify task is pinned to CORE0 (the ESP32 ), all others to CORE1. Empirically, the Spotify task has proven to be significantly more stable on CORE0, perhaps due to the WiFi libraries also running there.
 
@@ -121,7 +121,7 @@ I set up a camera to record a timelapse of the final assembly of the Audiobox XL
 - [Visual Studio Code](https://code.visualstudio.com/)
 - [PlatformIO](https://platformio.org/)
 
-### Libraries
+### Libraries & Code
 All libraries are installed via the PlatformIO plugin in VS Code. Links below do not necessarily map to the same version of the library used in this project. See [platformio.ini](platformio.ini) for the actual dependencies.
 - [Arduino](https://github.com/espressif/arduino-esp32) - base libraries for ESP32
 - [FastLED](https://github.com/FastLED/FastLED) - for manipulating LEDs
@@ -132,11 +132,12 @@ All libraries are installed via the PlatformIO plugin in VS Code. Links below do
 - [fft](https://github.com/fakufaku/esp32-fft) - for converting audio signal to frequency domain for visualizations
 - [base64](https://github.com/Densaugeo/base64_arduino) - for managing Spotify Web API authentication
 - [ESP Async Webserver](https://github.com/me-no-dev/ESPAsyncWebServer) - for managing browser-based UI
+- [s-marley](https://github.com/s-marley/ESP32_FFT_VU) - reference code for vertical bar LED visualization modes
+- [Random Nerd Tutorials](https://randomnerdtutorials.com/) - variety of references for working with ESP32 libaries
 
-### Attributions
-Below are some projects with similarities to Audiobox from which I've drawn inspiration:
+### Similar Projects
+During my time developing the Audiobox I've found a few projects with a lot of similarities, some available commercially:
 - [Modustrial Maker - Bluetooth Speaker w/ Reactive LED Matrix](https://www.youtube.com/watch?v=X1bEgGLwVLY)
 - [Game Frame](https://www.ledseq.com/product/game-frame/)
 - [Divoom Pixoo](https://divoom.com/products/divoom-pixoo)
-
-## License
+- [MondoBrite](https://www.youtube.com/watch?v=EcKAotEajbQ)
