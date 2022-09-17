@@ -88,7 +88,7 @@ The event handler task can optionally dump the maximum stack usage for each task
 ## Hardware Design
 
 ### Why XL?
-Designing the Audiobox XL was an iterative process, with an initial version that was based on an 8x8 LED panel with no LED panel actuation. I've retroactively named the earlier device Audibox Mini. While the much lower pixel resolution meant album art couldn't be accurately displayed on the Audiobox Mini, the initial design enabled a great deal of learning on both the electrical, mechanical, and software design.
+Designing the Audiobox XL was an iterative process, with an initial version that was based on an 8x8 LED panel with no LED panel actuation. I've retroactively named the earlier device Audibox Mini. While the much lower pixel resolution meant album art couldn't be accurately displayed on the Audiobox Mini, the initial prototype helped flesh out many of the electrical, mechanical, and software design elements that made it into the Audiobox XL.
 
 <figure>
 <figcaption><i>Audiobox Mini and Audiobox XL</i></figcaption>
@@ -108,7 +108,7 @@ The core elements of the Audiobox are an [Espressif ESP32 development board](htt
 </div>
 </figure>
 
-The [SPH0645 digital I2S MEMS microphone](https://www.adafruit.com/product/3421) provides audio input. I wanted to find a way to make the microphone user-adjustable in order to configure the Audiobox with different speaker arrangements, and came up with a way to utilize an off-the-shelf telephone cable and jack to do so. The SPH0645 requires a 6-pin connection, which matches perfectly with RJ12 telephone cables/jacks. The current design uses [this](https://www.amazon.com/gp/product/B01M0G7VP4) RJ12 cable, with one end cut and individual wires soldered onto the SPH0645 break-out board. The board is then enclosed within a custom 3D printed enclosure with an acoustic port for the microhpone.
+The [SPH0645 digital I2S MEMS microphone](https://www.adafruit.com/product/3421) provides audio input. I wanted to find a way to make the microphone user-adjustable in order to configure the Audiobox with different speaker arrangements, and came up with a way to utilize an off-the-shelf telephone cable and jack to do so. The SPH0645 requires a 6-pin connection, which matches perfectly with RJ12 telephone cables/jacks. The current design uses [this](https://www.amazon.com/gp/product/B01M0G7VP4) RJ12 cable, with one end cut and individual wires soldered onto the SPH0645 break-out board. The board is then enclosed within a custom 3D printed shell with an acoustic port for the microhpone.
 
 <figure>
 <figcaption><i>Microhone wiring and enclosure</i></figcaption>
@@ -120,7 +120,7 @@ The [SPH0645 digital I2S MEMS microphone](https://www.adafruit.com/product/3421)
 </figure>
 
 ### Mechanical Design
-Under the hood, the LED panel is attached to a rack-and-pinion system that moves the display with respect to the diffuser. This allows for different LED effects (soft and diffuse vs sharply defined). The ESP32 drives this behavior via commands to the servo motor. The rack-and-pinion is a custom 3D printed design, taking inspiration from various [linear actuator](https://engineerdog.com/2018/05/08/design-for-assembly-tips-building-a-better-3d-printed-linear-actuator/) [designs](https://www.thingiverse.com/thing:3170748) I found online. One change I made was to have the rack be stationary instead of the motor/pinion/base. This helped enable a more robust attachment mechanism between the LED panel and the rack-and-pinion structure. To reduce wobble of the LED panel as the motor actuates, two small "sleds" were 3D printed and attached to the bottom of the panel as guides. This, along with the use of syntehtic grease ([Super Lube](https://www.amazon.com/gp/product/B000BXKZQU)) on the sleds, rack, and pinion, as provided smooth actuation.
+Under the hood, the LED panel is attached to a rack-and-pinion system that moves the display with respect to the diffuser. This allows for different LED effects (soft and diffuse vs sharply defined). The ESP32 drives this behavior via commands to the servo motor. The rack-and-pinion is a custom 3D printed design, taking inspiration from various [linear actuator](https://engineerdog.com/2018/05/08/design-for-assembly-tips-building-a-better-3d-printed-linear-actuator/) [designs](https://www.thingiverse.com/thing:3170748) I found online. One change I made was to have the rack be stationary instead of the motor/pinion/base. This helped enable a more robust attachment mechanism between the LED panel and the rack-and-pinion structure. To reduce wobble of the LED panel as the motor actuates, two small "sleds" were 3D printed and attached to the bottom of the panel as guides. This, along with the use of synthetic grease ([Super Lube](https://www.amazon.com/gp/product/B000BXKZQU)) on the sleds, rack, and pinion provide smooth actuation.
 
 <figure>
 <figcaption><i>LED panel actuation</i></figcaption>
@@ -129,7 +129,7 @@ Under the hood, the LED panel is attached to a rack-and-pinion system that moves
 </div>
 </figure>
 
-The LED panel itself has a laser cut grid placed atop it, which helps to delineate the individual LEDs. This is particularly noticeable when the LED panel is very close to the diffuser and gives each LED the appearance of a square pixel. One downside is that as the panel moves away from the diffuser some edge effects from the grid are still visible. This is one aspect of the design that still needs some tuning.
+The LED panel itself has a laser cut grid placed atop it, which helps limit light bleed between neighboring LEDs. This is particularly noticeable when the LED panel is very close to the diffuser and gives each LED the appearance of a square pixel. One downside is that as the panel moves away from the diffuser some edge effects from the grid are still visible. This is one aspect of the design that still needs some tuning.
 
 <figure>
 <figcaption><i>LED grid</i></figcaption>
@@ -138,7 +138,7 @@ The LED panel itself has a laser cut grid placed atop it, which helps to delinea
 </div>
 </figure>
 
-The plastic diffuser on the front of the box is 1/8" thick [Chemcast Black LED Acrylic](https://www.tapplastics.com/product/plastics/cut_to_size_plastic/black_led_sheet/668) from TAP Plastics. Unlike typical white diffusers, I think the black acrylic blends in better with the black speakers in the living room where the Audiobox lives. The diffuser has 4 small magnets attached to the corners, which mate with 4 magnets on the front of the box, making it easily removable.
+The plastic diffuser on the front of the box is 1/8" thick [Chemcast Black LED Acrylic](https://www.tapplastics.com/product/plastics/cut_to_size_plastic/black_led_sheet/668) from TAP Plastics. Unlike typical white diffusers, I think the black acrylic matches the dark wood aesthetic of the box as well as other devices in the the living room where the Audiobox typically resides. The diffuser has 4 small magnets attached to the corners, which mate with 4 magnets on the front of the box, making it easily removable.
 
 The outer enclosure is a custom-designed, laser cut wooden box, using 1/4" sapele. I used simple box joints along with T-slots and hex nuts/bolts to enable assembly without the need for glue. Initial prototypes utilized 1/8" Baltic birch, which proved to be too flimsy for a box of this size. The 1/4" wood is sturdy and feels nice in the hand. I finished the sapele with a few coats of [Watco Danish Oil (Natural)](https://www.rustoleum.com/product-catalog/consumer-brands/watco/danish-oil), which I discovered while working on a separate jewelry box project. The Danish Oil adds an amazing color and depth to the wood while providing protection without the plasticky feel of typical polyurethane finishes.
 
