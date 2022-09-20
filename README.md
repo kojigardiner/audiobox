@@ -59,8 +59,8 @@ The browser-based UI is served directly from the ESP32 using the [ESPAsyncWebSer
 <figure>
 <figcaption><i>Desktop and mobile browser UI</i></figcaption>
 <div style="display:flex; gap:10px">
-<img src="images/audiobox_web2.png" alt="Screenshot of desktop browser controller with music playing" height=300>
-<img src="images/audiobox_app2.png" alt="Screenshot of mobile browser controller with music playing" height=300>
+<img src="images/audiobox_web2.png" alt="Screenshot of desktop browser controller with music playing" height=400>
+<img src="images/audiobox_app2.png" alt="Screenshot of mobile browser controller with music playing" height=400>
 </div>
 </figure>
 
@@ -71,12 +71,12 @@ Color palette generation uses a "mean cut" algorithm (similar to [median cut](ht
 <figure>
 <figcaption><i>Example color palettes</i></figcaption>
 <div style="display:flex; gap:10px">
-<img src="images/palettes/golden_hour.png" alt="Screenshot of album art and color palette" width=300>
-<img src="images/palettes/all_ashore.png" alt="Screenshot of album art and color palette" width=300>
+<img src="images/palettes/golden_hour.png" alt="Screenshot of album art and color palette" width=400>
+<img src="images/palettes/all_ashore.png" alt="Screenshot of album art and color palette" width=400>
 </div>
 <div style="display:flex; gap:10px">
-<img src="images/palettes/the_resistance.png" alt="Screenshot of album art and color palette" width=300>
-<img src="images/palettes/stereolab.png" alt="Screenshot of album art and color palette" width=300>
+<img src="images/palettes/the_resistance.png" alt="Screenshot of album art and color palette" width=400>
+<img src="images/palettes/stereolab.png" alt="Screenshot of album art and color palette" width=400>
 </div>
 </figure>
 
@@ -93,8 +93,8 @@ Designing the Audiobox XL was an iterative process, with an initial version that
 <figure>
 <figcaption><i>Audiobox Mini and Audiobox XL</i></figcaption>
 <div style="display:flex; gap:10px">
-<img src="images/audiobox_progression1.jpg" alt="" height=200>
-<img src="images/audiobox_progression2.jpg" alt="" height=200>
+<img src="images/audiobox_progression1.jpg" alt="" height=300>
+<img src="images/audiobox_progression2.jpg" alt="" height=300>
 </div>
 </figure>
 
@@ -113,9 +113,9 @@ The [SPH0645 digital I2S MEMS microphone](https://www.adafruit.com/product/3421)
 <figure>
 <figcaption><i>Microhone wiring and enclosure</i></figcaption>
 <div style="display:flex; gap:10px">
-<img src="images/audiobox_mic1.jpeg" alt="" height=200>
-<img src="images/audiobox_mic2.jpeg" alt="" height=200>
-<img src="images/audiobox_mic3.jpeg" alt="" height=200>
+<img src="images/audiobox_mic1.jpeg" alt="" height=250>
+<img src="images/audiobox_mic2.jpeg" alt="" height=250>
+<img src="images/audiobox_mic3.jpeg" alt="" height=250>
 </div>
 </figure>
 
@@ -134,7 +134,7 @@ The LED panel itself has a laser cut grid placed atop it, which helps limit ligh
 <figure>
 <figcaption><i>LED grid</i></figcaption>
 <div style="display:flex; gap:10px">
-<img src="images/audiobox_grid.jpg" alt="" height=300>
+<img src="images/audiobox_grid.jpg" alt="" height=400>
 </div>
 </figure>
 
