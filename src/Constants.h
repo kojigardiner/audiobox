@@ -50,7 +50,7 @@ const uint8_t WIFI_DNS2[4] = {8, 8, 4, 4};
                                       // functionality can be used: 0,2,4,12-15,25-27,32-39.
 
 // LED
-#define MAX_BRIGHT 100  // sets max brightness for LEDs
+#define MAX_BRIGHT 60   // sets max brightness for LEDs, 100 = ~3A at full white, 60 = ~1.8A
 #define GRID_H 16       // LED panel height
 #define GRID_W 16       // LED panel width
 #define NUM_LEDS GRID_H* GRID_W
