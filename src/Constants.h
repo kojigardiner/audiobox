@@ -159,10 +159,6 @@ enum AudioSubMode {
 #define FASTLED_ALLOW_INTERRUPTS 0       // TODO: check if we still need this
 #define FASTLED_INTERRUPT_RETRY_COUNT 1  // TODO: check if we still need this
 
-#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
-#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
-#endif
-
 // Gamma curve for perceptual brightness (looks like this is close to gamma=2.8)
 const uint8_t PROGMEM GAMMA8[] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

@@ -7,3 +7,10 @@ lib
 include
 logos.key
 product_shots.key
+*.jpg
+*.JPG
+*.png
+*.PNG
+*.gif
+*.GIF
+

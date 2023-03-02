@@ -16,6 +16,7 @@ LEDPanel::LEDPanel(int width, int height, int num_leds, int led_pin, uint8_t bri
     this->_brightness = brightness;
     this->_serpentine = serpentine;
     this->_first_pixel = first_pixel;
+    this->_audio_pattern = NULL;
 }
 
 LEDPanel::~LEDPanel() {
