@@ -20,6 +20,7 @@
 #include "Mode.h"
 #include "ModeSequence.h"
 #include "Spotify.h"
+#include "UDPClient.h"
 #include "Utils.h"
 #include "WebServer.h"
 
@@ -74,6 +75,9 @@ QueueHandle_t q_servo;
 TaskHandle_t task_mode;
 QueueHandle_t q_mode;
 
+TaskHandle_t task_udp;
+QueueHandle_t q_udp;
+
 // Task functions
 void task_eventhandler_code(void *parameter);
 void task_buttons_code(void *parameter);
@@ -82,6 +86,7 @@ void task_audio_code(void *parameter);
 void task_display_code(void *parameter);
 void task_servo_code(void *parameter);
 void task_mode_code(void *parameter);
+void task_udp_code(void *parameter);
 
 typedef struct AlbumArt {
     uint16_t full_art_rgb565[64][64] = {{0}};     // full resolution RGB565 artwork
@@ -200,22 +205,25 @@ void setup() {
     eh = EventHandler(q_events);
 
     q_spotify = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_spotify, q_spotify, EVENT_START | EVENT_MODE_CHANGED);
+    // eh.register_task(&task_spotify, q_spotify, EVENT_START | EVENT_MODE_CHANGED);
 
     q_display = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_display, q_display, EVENT_START | EVENT_MODE_CHANGED | EVENT_SPOTIFY_UPDATED | EVENT_AUDIO_FRAME_DONE);
+    // eh.register_task(&task_display, q_display, EVENT_START | EVENT_MODE_CHANGED | EVENT_SPOTIFY_UPDATED | EVENT_AUDIO_FRAME_DONE);
 
     q_buttons = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_buttons, q_buttons, EVENT_START);
+    // eh.register_task(&task_buttons, q_buttons, EVENT_START);
 
     q_audio = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_audio, q_audio, EVENT_START | EVENT_MODE_CHANGED);
+    // eh.register_task(&task_audio, q_audio, EVENT_START | EVENT_MODE_CHANGED);
 
     q_servo = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_servo, q_servo, EVENT_START | EVENT_SERVO_POS_CHANGED | EVENT_MODE_CHANGED);
+    // eh.register_task(&task_servo, q_servo, EVENT_START | EVENT_SERVO_POS_CHANGED | EVENT_MODE_CHANGED);
 
     q_mode = xQueueCreate(10, sizeof(event_t));
-    eh.register_task(&task_mode, q_mode, EVENT_START | EVENT_BUTTON_PRESSED | EVENT_SPOTIFY_UPDATED | EVENT_POWER_OFF | EVENT_REBOOT);
+    // eh.register_task(&task_mode, q_mode, EVENT_START | EVENT_BUTTON_PRESSED | EVENT_SPOTIFY_UPDATED | EVENT_POWER_OFF | EVENT_REBOOT);
+
+    q_udp = xQueueCreate(10, sizeof(event_t));
+    eh.register_task(&task_udp, q_udp, EVENT_START);
 
     xTaskCreatePinnedToCore(
         task_spotify_code,  // Function to implement the task
@@ -277,6 +285,16 @@ void setup() {
         1                 // Pinned core
     );
 
+    xTaskCreatePinnedToCore(
+        task_udp_code,    // Function to implement the task
+        "task_udp",       // Name of the task
+        10000,            // Stack size in bytes    TODO: reduce as needed
+        q_udp,            // Task input parameter
+        1,                // Priority of the task (don't use 0!)
+        &task_udp,        // Task handle
+        1                 // Pinned core
+    );
+
     // Setup eventhandler task last
     xTaskCreatePinnedToCore(
         task_eventhandler_code,  // Function to implement the task
@@ -300,81 +318,21 @@ void task_eventhandler_code(void *parameter) {
         // print("Received event, %d\n", e.event_type);
         eh.process(e);
 
-        // print("task memory: %d,%d,%d,%d,%d,%d,%d\n",
+        // TODO: incorporate stats dump in EH class to loop through all tasks
+        // print("task memory: %d,%d,%d,%d,%d,%d,%d,%d\n",
         //       uxTaskGetStackHighWaterMark(task_eventhandler),
         //       uxTaskGetStackHighWaterMark(task_buttons),
         //       uxTaskGetStackHighWaterMark(task_spotify),
         //       uxTaskGetStackHighWaterMark(task_audio),
         //       uxTaskGetStackHighWaterMark(task_display),
         //       uxTaskGetStackHighWaterMark(task_servo),
-        //       uxTaskGetStackHighWaterMark(task_mode));
+        //       uxTaskGetStackHighWaterMark(task_mode),
+        //       uxTaskGetStackHighWaterMark(task_udp));
     }
 }
 
 void loop() {
     vTaskDelete(NULL);  // delete setup and loop tasks
-}
-
-void test_modes() {
-    Mode MAIN_MODES_LIST[] = {
-        Mode(MODE_MAIN_ART, SERVO_POS_ART, DURATION_MS_ART),
-        Mode(MODE_MAIN_AUDIO, SERVO_POS_NOISE, DURATION_MS_AUDIO)};
-
-    Mode ART_SUB_MODES_LIST[] = {
-        Mode(MODE_ART_WITHOUT_ELAPSED, SERVO_POS_ART),
-        Mode(MODE_ART_WITH_ELAPSED, SERVO_POS_ART),
-        Mode(MODE_ART_WITH_PALETTE, SERVO_POS_ART)};
-
-    Mode AUDIO_SUB_MODES_LIST[] = {
-        Mode(MODE_AUDIO_NOISE, SERVO_POS_NOISE),
-        Mode(MODE_AUDIO_SNAKE_GRID, SERVO_POS_GRID),
-        Mode(MODE_AUDIO_BARS, SERVO_POS_BARS),
-        Mode(MODE_AUDIO_CENTER_BARS, SERVO_POS_BARS),
-        Mode(MODE_AUDIO_WATERFALL, SERVO_POS_NOISE)};
-
-    ModeSequence art_sub_modes = ModeSequence(ART_SUB_MODES_LIST, ARRAY_SIZE(ART_SUB_MODES_LIST));
-    ModeSequence audio_sub_modes = ModeSequence(AUDIO_SUB_MODES_LIST, ARRAY_SIZE(AUDIO_SUB_MODES_LIST));
-    ModeSequence sub_modes[] = {art_sub_modes, audio_sub_modes};
-
-    ModeSequence main_modes = ModeSequence(MAIN_MODES_LIST, ARRAY_SIZE(MAIN_MODES_LIST), sub_modes);
-    main_modes.description();
-
-    print("\n\n");
-    main_modes.next();
-    main_modes.description();
-    main_modes.mode().description();
-    main_modes.submode().description();
-    main_modes.get_curr_mode();
-
-    print("\n\n");
-    main_modes.submode_next();
-    main_modes.description();
-    main_modes.mode().description();
-    main_modes.submode().description();
-
-    print("\n\n");
-    main_modes.submode_next();
-    main_modes.description();
-    main_modes.mode().description();
-    main_modes.submode().description();
-
-    print("\n\n");
-    main_modes.submode_next();
-    main_modes.description();
-    main_modes.mode().description();
-    main_modes.submode().description();
-
-    print("\n\n");
-    main_modes.submode_next();
-    main_modes.description();
-    main_modes.mode().description();
-    main_modes.submode().description();
-
-    print("\n\n");
-    main_modes.submode_next();
-    main_modes.description();
-    main_modes.mode().description();
-    main_modes.submode().description();
 }
 
 void show_leds() {
@@ -909,7 +867,7 @@ void task_servo_code(void *parameter) {
     BaseType_t q_return;
 
     // Initialize variables
-    curr_pos = SERVO_POS_NOISE;  // this is the default position we should end at on power down
+    curr_pos = SERVO_POS_BARS;  // this is the default position we should end at on power down
     myservo.write(curr_pos);
 
     target_pos = curr_pos;
@@ -973,6 +931,61 @@ void task_servo_code(void *parameter) {
         // }
         // Serial.println("Servo ending pos: " + String(target_pos));
         vTaskDelay(SERVO_CYCLE_TIME_MS / portTICK_RATE_MS);
+    }
+    vTaskDelete(NULL);
+}
+
+void udp_tx_callback(Message *message) {
+    message->has_sender = true;
+    message->sender = Sender_CLIENT_AUDIOBOX;
+    if (message->type == MessageType_CONFIG) {
+        message->config.has_led_format = true;
+        message->config.led_format = LedFormat_SERPENTINE_GRID;
+
+        message->config.has_num_leds = true;
+        message->config.num_leds = NUM_LEDS;
+    }
+}
+
+void udp_rx_callback(Message *message) {
+    if (message->type == MessageType_DATA) {
+        print("Sequence number = %d\n", message->sequence_number);
+        size_t to_copy = NUM_LEDS * 3;
+        if (message->data.led_data.size < to_copy) {
+            to_copy = message->data.led_data.size;
+        }
+        xSemaphoreTake(mutex_leds, portMAX_DELAY);
+        for (int i = 0; i < NUM_LEDS; i++) {
+            lp.set(i, CRGB(message->data.led_data.bytes[i * 3], message->data.led_data.bytes[i * 3 + 1], message->data.led_data.bytes[i * 3 + 2]));
+        }
+        xSemaphoreGive(mutex_leds);
+        show_leds();
+    }
+}
+
+void task_udp_code(void *parameter) {
+    print("task_udp_code running on core ");
+    print("%d\n", xPortGetCoreID());
+
+    BaseType_t q_return;
+    QueueHandle_t q = (QueueHandle_t)parameter;
+    event_t received_event = {};
+
+    // Setup UDP class
+    Message message;
+    UDPClient udp = UDPClient(&message, WiFi.localIP(), udp_tx_callback, udp_rx_callback);
+    udp_client_state_t state = udp.get_state();
+
+    q_return = xQueueReceive(q, &received_event, portMAX_DELAY);  // wait for start signal
+    if (q_return == pdTRUE && received_event.event_type == EVENT_START) {
+        print("Starting task\n");
+    }
+
+    for (;;) {
+        // UDP logic
+        state = udp.advance();    
+        // print("stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
+        vTaskDelay(1);
     }
     vTaskDelete(NULL);
 }
@@ -1189,4 +1202,67 @@ bool display_jpg_data(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bi
     }
 
     return true;
+}
+
+
+void test_modes() {
+    Mode MAIN_MODES_LIST[] = {
+        Mode(MODE_MAIN_ART, SERVO_POS_ART, DURATION_MS_ART),
+        Mode(MODE_MAIN_AUDIO, SERVO_POS_NOISE, DURATION_MS_AUDIO)};
+
+    Mode ART_SUB_MODES_LIST[] = {
+        Mode(MODE_ART_WITHOUT_ELAPSED, SERVO_POS_ART),
+        Mode(MODE_ART_WITH_ELAPSED, SERVO_POS_ART),
+        Mode(MODE_ART_WITH_PALETTE, SERVO_POS_ART)};
+
+    Mode AUDIO_SUB_MODES_LIST[] = {
+        Mode(MODE_AUDIO_NOISE, SERVO_POS_NOISE),
+        Mode(MODE_AUDIO_SNAKE_GRID, SERVO_POS_GRID),
+        Mode(MODE_AUDIO_BARS, SERVO_POS_BARS),
+        Mode(MODE_AUDIO_CENTER_BARS, SERVO_POS_BARS),
+        Mode(MODE_AUDIO_WATERFALL, SERVO_POS_NOISE)};
+
+    ModeSequence art_sub_modes = ModeSequence(ART_SUB_MODES_LIST, ARRAY_SIZE(ART_SUB_MODES_LIST));
+    ModeSequence audio_sub_modes = ModeSequence(AUDIO_SUB_MODES_LIST, ARRAY_SIZE(AUDIO_SUB_MODES_LIST));
+    ModeSequence sub_modes[] = {art_sub_modes, audio_sub_modes};
+
+    ModeSequence main_modes = ModeSequence(MAIN_MODES_LIST, ARRAY_SIZE(MAIN_MODES_LIST), sub_modes);
+    main_modes.description();
+
+    print("\n\n");
+    main_modes.next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
+    main_modes.get_curr_mode();
+
+    print("\n\n");
+    main_modes.submode_next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
+
+    print("\n\n");
+    main_modes.submode_next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
+
+    print("\n\n");
+    main_modes.submode_next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
+
+    print("\n\n");
+    main_modes.submode_next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
+
+    print("\n\n");
+    main_modes.submode_next();
+    main_modes.description();
+    main_modes.mode().description();
+    main_modes.submode().description();
 }

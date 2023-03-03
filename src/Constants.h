@@ -202,4 +202,20 @@ const uint8_t FFT_EQ[FFT_SAMPLES / 2] = {44, 72, 85, 101, 101, 101, 101, 104, 11
 // Shifted over by one so we get some low end
 const uint8_t A_WEIGHTING[FFT_SAMPLES / 2] = {0};  //{18, 49, 78, 103, 125, 144, 159, 172, 183, 192, 199, 205, 211, 215, 219, 222, 224, 226, 228, 230, 231, 232, 233, 233, 234, 234, 234, 234, 234, 234, 234, 234, 234, 234, 233, 233, 232, 232, 231, 231, 230, 229, 229, 228, 227, 226, 226, 225, 224, 223, 222, 221, 220, 219, 218, 217, 216, 216, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205, 204, 203, 202, 201, 199, 198, 197, 196, 195, 194, 193, 191, 190, 189, 188, 187, 186, 185, 183, 182, 181, 180, 179, 178, 177, 175, 174, 173, 172, 171, 170, 169, 167, 166, 165, 164, 163, 162, 161, 160, 159, 158, 157, 155, 154, 153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 140};
 
+// UDPClient Constants
+
+// Max protobuf message size
+#define MAX_MESSAGE_BYTES 1460
+
+// Timeouts
+#define DISCOVERY_CONFIG_MS 1000            // how long to wait between discovery loops
+#define DISCOVERY_TIMEOUT_MS 10000          // how long to wait in discovery state before returning to idle
+#define HEARTBEAT_MS 2000                   // how often to send a heartbeat to the server
+#define HEARTBEAT_ACK_MS 10000              // how long wait for a heartbeat response
+
+// UDP Port Range
+#define UDP_BROADCAST_PORT 3000
+#define MIN_UDP_PORT 49152
+#define MAX_UDP_PORT 65535
+
 #endif //_CONSTANTS_H
